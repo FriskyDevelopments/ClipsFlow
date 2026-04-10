@@ -1,0 +1,9 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="result premium">
+<defs>
+  <filter id="g" x="-40%" y="-40%" width="180%" height="180%">
+    <feGaussianBlur stdDeviation="1.2" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+</defs>
+<g filter="url(#g)"><path d="M32 10 L38 24 L54 24 L41 34 L46 50 L32 40 L18 50 L23 34 L10 24 L26 24 Z" fill="rgba(176,154,255,0.2)" stroke="#F4F7FF" stroke-width="1.6" stroke-linejoin="round"/></g><ellipse cx="32" cy="32" rx="24" ry="20" fill="none" stroke="#8FF2FF" stroke-opacity="0.10" stroke-width="1"><animate attributeName="stroke-opacity" values="0.05;0.10;0.05" dur="3s" repeatCount="indefinite"/></ellipse>
+</svg>

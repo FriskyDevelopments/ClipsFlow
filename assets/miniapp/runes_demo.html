@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ClipsFlow · STIX MΛGIC Pipeline</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-0: #050505;
+      --bg-1: #050505;
+      --surface: #080808;
+      --surface-2: #0d0d0d;
+      --line: #1a1a1a;
+      --line-strong: #2c2c2c;
+      --text: #ffffff;
+      --text-muted: #a8a8a8;
+      --focus: #78c9ff;
+      --accent: #00f2fe;
+      --accent-2: #8f00ff;
+      --ok: #71e6ae;
+      --warn: #ffb562;
+      --err: #ff6a8f;
+      --line-size: 3;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px;
+      background: #050505;
+      color: var(--text);
+      font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: grid;
+      place-items: center;
+    }
+
+    .app {
+      width: min(1100px, 100%);
+      background: linear-gradient(180deg, rgba(8, 8, 8, 0.96), rgba(5, 5, 5, 0.99));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .topbar {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .identity {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .identity .brand-name {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0;
+    }
+
+    .identity .brand-s {
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .topbar-links {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .topbar-link {
+      border: 1px solid var(--line-strong);
+      background: rgba(13, 13, 13, 0.92);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 11px;
+      font-size: 12px;
+      font-weight: 550;
+      letter-spacing: 0.01em;
+      text-decoration: none;
+      transition: border-color 100ms ease, transform 100ms ease, background 100ms ease;
+    }
+
+    .topbar-link:hover {
+      border-color: #8f00ff;
+      background: rgba(20, 20, 20, 0.98);
+      transform: translateY(-1px);
+    }
+
+    .identity-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: rgba(143, 0, 255, 0.08);
+      border: 1px solid rgba(143, 0, 255, 0.5);
+      color: var(--accent);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .state-pill {
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      font-size: 12px;
+      padding: 6px 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      background: rgba(10, 10, 10, 0.9);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 0;
+    }
+
+    .panel {
+      padding: 24px;
+    }
+
+    .panel + .panel {
+      border-left: 1px solid var(--line);
+      background: rgba(7, 7, 7, 0.6);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(22px, 2.4vw, 30px);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+    }
+
+    .sub {
+      margin: 10px 0 0;
+      color: #868686;
+      max-width: 58ch;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .field {
+      margin-top: 18px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .field label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    .input-wrap::before {
+      content: "⟪";
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--accent);
+      font-family: ui-monospace, monospace;
+      pointer-events: none;
+      opacity: 0.85;
+    }
+
+    input[type="url"] {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      background: rgba(10, 10, 10, 0.95);
+      color: var(--text);
+      border-radius: var(--radius-sm);
+      padding: 13px 12px 13px 34px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+    }
+
+    input[type="url"]:hover { border-color: #43638f; }
+
+    input[type="url"]:focus-visible {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 3px rgba(120, 201, 255, 0.2);
+      background: rgba(7, 10, 17, 0.95);
+    }
+
+    .hint {
+      margin: 0;
+      font-size: 12px;
+      color: #7f8cac;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    button {
+      border: 1px solid var(--line-strong);
+      background: rgba(12, 12, 12, 0.95);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 13px;
+      font-size: 13px;
+      font-weight: 550;
+      line-height: 1;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: border-color 100ms ease, transform 100ms ease, background 100ms ease;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: #8f00ff;
+      background: rgba(24, 24, 24, 0.98);
+      transform: translateY(-1px);
+    }
+
+    button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(120, 201, 255, 0.22);
+      border-color: var(--focus);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      border-color: rgba(143, 0, 255, 0.7);
+      background: linear-gradient(120deg, #8f00ff, #00f2fe);
+      color: #050505;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-primary::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.22), transparent 70%);
+      transform: translateX(-100%);
+      transition: transform 280ms ease;
+    }
+
+    .btn-primary:hover::after { transform: translateX(100%); }
+
+    .divider {
+      margin: 20px 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(78px, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .rune {
+      min-height: 94px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(13, 13, 13, 0.94), rgba(8, 8, 8, 0.99));
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #00f2fe;
+      transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, color 160ms ease;
+      transform-origin: center;
+    }
+
+    .rune svg {
+      width: 48px;
+      height: 48px;
+    }
+
+    .rune path,
+    .rune rect {
+      stroke-dasharray: 140;
+      stroke-dashoffset: 140;
+      animation: draw 760ms ease forwards;
+      stroke-width: var(--line-size);
+      stroke: currentColor;
+      fill: none;
+      stroke-linecap: square;
+    }
+
+    .rune .label {
+      margin-top: 6px;
+      text-align: center;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+    }
+
+    .rune.active {
+      color: #8f00ff;
+      border-color: rgba(143, 0, 255, 0.9);
+      box-shadow: inset 0 0 0 1px rgba(143, 0, 255, 0.5), 0 0 0 1px rgba(143, 0, 255, 0.25);
+      animation: pulse 620ms ease infinite alternate;
+    }
+
+    .rune.ok {
+      color: var(--ok);
+      border-color: rgba(113, 230, 174, 0.8);
+      box-shadow: inset 0 0 0 1px rgba(113, 230, 174, 0.42);
+    }
+
+    .rune.err {
+      color: var(--err);
+      border-color: rgba(255, 106, 143, 0.82);
+      box-shadow: inset 0 0 0 1px rgba(255, 106, 143, 0.42);
+      animation: jitter 220ms linear infinite;
+    }
+
+    .rune.dim {
+      opacity: 0.5;
+      filter: grayscale(0.15);
+    }
+
+    .status-box {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      background: rgba(9, 9, 9, 0.95);
+    }
+
+    .status-title {
+      margin: 0;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .status-line {
+      margin: 10px 0 0;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .status-line b {
+      font-weight: 650;
+      color: #ffffff;
+    }
+
+    .status-line[data-tone="ok"] b { color: var(--ok); }
+    .status-line[data-tone="warn"] b { color: var(--warn); }
+    .status-line[data-tone="err"] b { color: var(--err); }
+
+    .legend {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px dashed #2a2a2a;
+      display: grid;
+      gap: 8px;
+    }
+
+    .legend-item {
+      font-size: 12px;
+      color: #9a9a9a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .legend-item .glyph {
+      width: 20px;
+      text-align: center;
+      font-family: ui-monospace, monospace;
+      color: var(--accent);
+    }
+
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.025); } }
+    @keyframes jitter {
+      0% { transform: translateX(0); }
+      25% { transform: translateX(1px); }
+      50% { transform: translateX(-1px); }
+      75% { transform: translateX(1px); }
+      100% { transform: translateX(0); }
+    }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .panel + .panel { border-left: 0; border-top: 1px solid var(--line); }
+    }
+
+    @media (max-width: 720px) {
+      body { padding: 10px; }
+      .topbar,
+      .panel { padding: 16px; }
+      .pipeline {
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+      }
+      .rune { min-height: 84px; }
+      .actions { gap: 8px; }
+      button { flex: 1 1 calc(50% - 8px); }
+    }
+  </style>
+</head>
+<body>
+  <main class="app" aria-label="ClipsFlow processing interface">
+    <header class="topbar">
+      <div class="identity">
+        <span class="identity-mark" aria-hidden="true">Λ</span>
+        <span class="brand-name">Clip<span class="brand-s">s</span>Flow · Obsidian</span>
+      </div>
+      <div class="topbar-links">
+        <a class="topbar-link" href="https://t.me/clipsflowbot" target="_blank" rel="noopener noreferrer">Open in Telegram</a>
+        <a class="topbar-link" href="https://t.me/clipsflowbot" target="_blank" rel="noopener noreferrer">Try Mini App</a>
+        <div class="state-pill" id="state-pill">Idle</div>
+      </div>
+    </header>
+
+    <section class="layout">
+      <div class="panel">
+        <h1>Get your clip.</h1>
+        <p class="sub">Submit a source URL and transmit directly into the ClipsFlow Obsidian pipeline.</p>
+
+        <div class="field">
+          <label for="clip-url">Clip Source URL</label>
+          <div class="input-wrap">
+            <input id="clip-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://www.youtube.com/watch?v=..." />
+          </div>
+          <p class="hint">Accepted format: full https URL. Validation happens before flow activation.</p>
+        </div>
+
+        <div class="actions" role="group" aria-label="Pipeline controls">
+          <button id="mark-ready">Mark input ready</button>
+          <button id="run" class="btn-primary">Transmit</button>
+          <button id="force-success">Force success</button>
+          <button id="force-error">Force disruption</button>
+          <button id="reset">Reset</button>
+        </div>
+
+        <div class="divider" aria-hidden="true"></div>
+
+        <div class="pipeline" id="pipeline" aria-live="polite"></div>
+      </div>
+
+      <aside class="panel">
+        <div class="status-box">
+          <p class="status-title">Obsidian Desk</p>
+          <p class="status-line">[ 🛰️ VESSEL: @clipsflowbot ]</p>
+          <p class="status-line" id="status-line">State: <b>Idle</b>. Awaiting clip intake.</p>
+
+          <div class="legend">
+            <div class="legend-item"><span class="glyph">⟪</span><span>Input handshake accepted.</span></div>
+            <div class="legend-item"><span class="glyph">Λ</span><span>Core transform stage in active computation.</span></div>
+            <div class="legend-item"><span class="glyph">◫</span><span>Output stabilized and sealed.</span></div>
+            <div class="legend-item"><span class="glyph">✕</span><span>Disruption detected, flow interrupted.</span></div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+<script>
+const runes = [
+  { key: 'input', label: 'INPUT ⟪', svg: '<path d="M34 10 16 32 34 54"/><path d="M50 10 32 32 50 54"/>' },
+  { key: 'flow', label: 'FLOW →', svg: '<path d="M10 32h36"/><path d="M34 18 50 32 34 46"/>' },
+  { key: 'transform', label: 'Λ CORE', svg: '<path d="M14 50 32 14 50 50"/>' },
+  { key: 'split', label: 'SPLIT ⫶', svg: '<path d="M12 32h22"/><path d="M34 32 52 16"/><path d="M34 32 52 48"/>' },
+  { key: 'output', label: 'OUTPUT ◫', svg: '<rect x="12" y="18" width="40" height="28"/>' },
+  { key: 'error', label: 'ERROR ✕', svg: '<path d="M14 14 28 28"/><path d="M36 36 50 50"/><path d="M50 14 36 28"/><path d="M28 36 14 50"/>' },
+  { key: 'lock', label: 'LOCK ⟐', svg: '<path d="M32 10 52 32 32 54 12 32Z"/><path d="M32 32h.1"/>' },
+];
+
+const order = ['input', 'flow', 'transform', 'split', 'output'];
+const pipeline = document.getElementById('pipeline');
+const nodeMap = {};
+const input = document.getElementById('clip-url');
+const statePill = document.getElementById('state-pill');
+const statusLine = document.getElementById('status-line');
+const runBtn = document.getElementById('run');
+const readyBtn = document.getElementById('mark-ready');
+
+const STATES = {
+  IDLE: 'Idle',
+  READY: 'Input ready',
+  PROCESSING: 'Processing',
+  SUCCESS: 'Success',
+  ERROR: 'Error',
+};
+
+let state = STATES.IDLE;
+let isRunning = false;
+
+function renderRunes() {
+  runes.forEach((r) => {
+    const el = document.createElement('div');
+    el.className = 'rune dim';
+    el.dataset.key = r.key;
+    el.innerHTML = `<div><svg viewBox="0 0 64 64" aria-hidden="true">${r.svg}</svg><div class="label">${r.label}</div></div>`;
+    nodeMap[r.key] = el;
+    pipeline.appendChild(el);
+  });
+}
+
+function clearRuneStates() {
+  Object.values(nodeMap).forEach((node) => {
+    node.className = 'rune dim';
+  });
+}
+
+function urlLooksValid(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function setStatus(text, tone = '') {
+  statusLine.innerHTML = text;
+  statusLine.dataset.tone = tone;
+}
+
+function setState(next) {
+  state = next;
+  statePill.textContent = next;
+
+  if (next === STATES.IDLE) {
+    setStatus('State: <b>Idle</b>. Awaiting clip intake.');
+    clearRuneStates();
+  }
+
+  if (next === STATES.READY) {
+    clearRuneStates();
+    nodeMap.input.classList.remove('dim');
+    nodeMap.input.classList.add('ok');
+    setStatus('State: <b>Input ready</b>. Clip source acquired and validated.', 'ok');
+  }
+
+  if (next === STATES.PROCESSING) {
+    setStatus('State: <b>Processing</b>. Running deterministic transformation path.', 'warn');
+  }
+
+  if (next === STATES.SUCCESS) {
+    setStatus('State: <b>Success</b>. Output stabilized and lock seal verified.', 'ok');
+  }
+
+  if (next === STATES.ERROR) {
+    setStatus('State: <b>Error</b>. Disruption detected in Λ core transform.', 'err');
+  }
+
+  runBtn.disabled = isRunning || !urlLooksValid(input.value);
+  readyBtn.disabled = isRunning || !urlLooksValid(input.value);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function animateFlow() {
+  clearRuneStates();
+  order.forEach((key) => nodeMap[key].classList.remove('dim'));
+
+  for (const key of order) {
+    nodeMap[key].classList.add('active');
+    await wait(310);
+    nodeMap[key].classList.remove('active');
+    nodeMap[key].classList.add('ok');
+  }
+}
+
+async function runFlow(mode = 'auto') {
+  if (isRunning) return;
+  if (!urlLooksValid(input.value)) {
+    setState(STATES.ERROR);
+    clearRuneStates();
+    nodeMap.error.classList.remove('dim');
+    nodeMap.error.classList.add('err');
+    setStatus('State: <b>Error</b>. Source URL must be full HTTPS format.', 'err');
+    return;
+  }
+
+  isRunning = true;
+  setState(STATES.PROCESSING);
+  clearRuneStates();
+
+  try {
+    await animateFlow();
+
+    const succeed = mode === 'success' || (mode === 'auto' && Math.random() > 0.2);
+
+    if (succeed) {
+      nodeMap.lock.classList.remove('dim');
+      nodeMap.lock.classList.add('ok');
+      nodeMap.output.classList.add('ok');
+      await transmitHandshake();
+      setState(STATES.SUCCESS);
+    } else {
+      nodeMap.error.classList.remove('dim');
+      nodeMap.error.classList.add('err');
+      setState(STATES.ERROR);
+    }
+  } finally {
+    isRunning = false;
+    setState(state);
+  }
+}
+
+async function transmitHandshake() {
+  const payload = {
+    vessel: '@clipsflowbot',
+    signal: 'clip_extracted',
+    status: 'anchored',
+    source_url: input.value,
+    transmitted_at: new Date().toISOString(),
+  };
+
+  try {
+    const intakeUrl = new URL('data/signal-intake.json', document.baseURI).toString();
+    const response = await fetch(intakeUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Intake endpoint returned HTTP ${response.status}`);
+    }
+
+    setStatus('State: <b>Success</b>. Payload anchored to @clipsflowbot in /data.', 'ok');
+  } catch {
+    setStatus('State: <b>Success</b>. Clip extracted; local repo sync endpoint unavailable.', 'warn');
+  }
+}
+
+function resetAll() {
+  input.value = '';
+  setState(STATES.IDLE);
+}
+
+document.getElementById('run').addEventListener('click', () => runFlow('auto'));
+document.getElementById('force-success').addEventListener('click', () => runFlow('success'));
+document.getElementById('force-error').addEventListener('click', () => runFlow('error'));
+document.getElementById('mark-ready').addEventListener('click', () => {
+  if (urlLooksValid(input.value)) {
+    setState(STATES.READY);
+  } else {
+    setState(STATES.ERROR);
+    clearRuneStates();
+    nodeMap.error.classList.remove('dim');
+    nodeMap.error.classList.add('err');
+    setStatus('State: <b>Error</b>. Provide a valid https:// clip URL before readiness.', 'err');
+  }
+});
+document.getElementById('reset').addEventListener('click', resetAll);
+input.addEventListener('input', () => {
+  if (!isRunning && state !== STATES.PROCESSING) {
+    if (urlLooksValid(input.value)) {
+      setState(STATES.READY);
+    } else {
+      setState(STATES.IDLE);
+    }
+  }
+});
+
+renderRunes();
+setState(STATES.IDLE);
+</script>
+</body>
+</html>
