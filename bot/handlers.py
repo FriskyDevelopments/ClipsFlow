@@ -464,12 +464,26 @@ class BotHandlers:
         if not query.data:
             return
 
+        try:
+            await query.answer()
+        except: pass
+
+        async def edit_content(new_text: str, reply_markup=None):
+            try:
+                if query.message.media:
+                    await query.edit_message_caption(caption=new_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+                else:
+                    await query.edit_message_text(text=new_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+            except MessageNotModified:
+                pass
+            except Exception as e:
+                logger.error("Failed to edit menu: %s", e)
+
         if query.data == "menu:frisky_signal":
-            await query.edit_message_text(
+            await edit_content(
                 "🚨 <b>Frisky Signal</b>\n\n"
                 "Are you sure you want to trigger the Frisky Signal? This is for urgent support and will contact the administrative team directly.",
                 reply_markup=self.frisky_signal_menu,
-                parse_mode=ParseMode.HTML,
             )
             return
 
@@ -487,10 +501,9 @@ class BotHandlers:
                 except Exception as e:
                     logger.error("Failed to notify admin %s: %s", admin_id, e)
 
-            await query.edit_message_text(
+            await edit_content(
                 "📡 <b>Signal Sent!</b>\n\nThe Frisky Support Team has been notified. We will reach out to you shortly.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Main Terminal", callback_data="menu:back_to_main")]]),
-                parse_mode=ParseMode.HTML,
             )
             return
 
@@ -500,7 +513,7 @@ class BotHandlers:
                 from services.db import get_admin_stats  # pyright: ignore[reportAttributeAccessIssue]
                 stats = await asyncio.to_thread(get_admin_stats)
                 
-                await query.edit_message_text(
+                await edit_content(
                     "🔧 <b>ADMINISTRATOR TERMINAL</b>\n\n"
                     "<b>SYSTEM METRICS:</b>\n"
                     f"👥 Total Users: {stats.get('total_users', 0)}\n"
@@ -510,19 +523,16 @@ class BotHandlers:
                     "• <code>/grantfree &lt;user_id&gt;</code> — Manually grant Pro status to a user ID.\n"
                     "• <i>More admin features incoming.</i>",
                     reply_markup=self.inline_menu,
-                    parse_mode=ParseMode.HTML,
                 )
             else:
-                await query.answer("⛔ Access Denied: Administrator privileges required.", show_alert=True)
+                await edit_content("⛔ Access Denied: Administrator privileges required.", reply_markup=self.inline_menu)
             return
 
         if query.data == "menu:back_to_main":
-            # Repaint the start screen
             start_msg = _START_TEXT.replace("<b>Welcome to ClipFLOW.</b>", "<b>Welcome back.</b>")
-            await query.edit_message_text(
+            await edit_content(
                 start_msg,
                 reply_markup=self.inline_menu,
-                parse_mode=ParseMode.HTML,
             )
             return
 
