@@ -107,14 +107,14 @@ class ClipPipeline:
                     rejection_reason=RejectionReason.PROVIDER_ERROR,
                     rejection_message=f"Provider error: {exc}{retry_hint}",
                 )
-        except Exception:  # noqa: BLE001
-            logger.exception("Unexpected provider error: provider=%r", provider.name)
-            return ClipResult(
-                status=ClipStatus.PROVIDER_ERROR,
-                original_url=normalized_url,
-                rejection_reason=RejectionReason.UNKNOWN,
-                rejection_message="An unexpected error occurred. Please try again.",
-            )
+            except Exception:  # noqa: BLE001
+                logger.exception("Unexpected provider error: provider=%r", provider.name)
+                return ClipResult(
+                    status=ClipStatus.PROVIDER_ERROR,
+                    original_url=normalized_url,
+                    rejection_reason=RejectionReason.UNKNOWN,
+                    rejection_message="An unexpected error occurred. Please try again.",
+                )
 
         if candidate is None:
             return ClipResult(

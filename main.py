@@ -130,6 +130,24 @@ def main() -> None:
         sys.exit(1)
 
     logger.info("ClipsFlow starting via Pyrogram...")
+
+    # --- Cloud Run Hack ---
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import os
+    class HealthCheckHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"OK")
+        def log_message(self, format, *args): pass
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    logger.info(f"Cloud Run healthcheck server listening on port {port}")
+    # ----------------------
+
     app.run()
 
 
