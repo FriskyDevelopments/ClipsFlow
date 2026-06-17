@@ -41,6 +41,18 @@ class TestSettingsDefaults:
         s = Settings()
         assert s.youtube_api_key == ""
 
+    def test_ytdlp_impersonate_defaults_to_empty(self, monkeypatch):
+        monkeypatch.delenv("YTDLP_IMPERSONATE", raising=False)
+        s = Settings()
+        assert s.ytdlp_impersonate == ""
+
+    def test_ytdlp_cookie_fields_default_to_empty(self, monkeypatch):
+        monkeypatch.delenv("YTDLP_COOKIE_FILE", raising=False)
+        monkeypatch.delenv("YTDLP_COOKIES_B64", raising=False)
+        s = Settings()
+        assert s.ytdlp_cookie_file == ""
+        assert s.ytdlp_cookies_b64 == ""
+
     def test_app_env_defaults_to_development(self, monkeypatch):
         monkeypatch.delenv("APP_ENV", raising=False)
         s = Settings()
@@ -60,6 +72,23 @@ class TestSettingsDefaults:
         monkeypatch.delenv("CLIP_ALLOWED_MEDIA_TYPES", raising=False)
         s = Settings()
         assert s.clip_allowed_media_types == ["video"]
+
+    def test_free_watermark_defaults_enabled(self, monkeypatch):
+        monkeypatch.delenv("FREE_WATERMARK_ENABLED", raising=False)
+        monkeypatch.delenv("FREE_WATERMARK_TEXT", raising=False)
+        s = Settings()
+        assert s.free_watermark_enabled is True
+        assert s.free_watermark_text == "ClipFLOW Free"
+
+    def test_delivery_timeout_default(self, monkeypatch):
+        monkeypatch.delenv("TELEGRAM_DELIVERY_TIMEOUT_SECONDS", raising=False)
+        s = Settings()
+        assert s.telegram_delivery_timeout_seconds == 600
+
+    def test_free_trial_export_limit_default(self, monkeypatch):
+        monkeypatch.delenv("FREE_TRIAL_EXPORT_LIMIT", raising=False)
+        s = Settings()
+        assert s.free_trial_export_limit == 25
 
 
 class TestSettingsClipProvider:

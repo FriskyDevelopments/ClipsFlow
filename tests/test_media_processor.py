@@ -180,3 +180,72 @@ async def test_threaded_stress_download(monkeypatch, tmp_path, make_settings):
         import os
         assert os.path.exists(path)
         assert os.path.getsize(path) > 0
+
+
+@pytest.mark.asyncio
+async def test_apply_free_watermark_uses_configured_text(monkeypatch, tmp_path, make_settings):
+    settings = make_settings(free_watermark_text="ClipFLOW Trial")
+    processor = MediaProcessor(settings)
+    input_path = tmp_path / "input.mp4"
+    input_path.write_bytes(b"video")
+    captured = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = args
+
+        class MockProcess:
+            returncode = 0
+
+            async def communicate(self):
+                output_path = args[-1]
+                with open(output_path, "wb") as output:
+                    output.write(b"watermarked")
+                return b"", b""
+
+        return MockProcess()
+
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    output_path = await processor.apply_free_watermark(str(input_path))
+
+    assert os.path.exists(output_path)
+    assert "-vf" in captured["args"]
+    assert "ClipFLOW Trial" in captured["args"][captured["args"].index("-vf") + 1]
+
+
+@pytest.mark.asyncio
+async def test_process_media_rejects_long_downloaded_video_before_transcode(monkeypatch, tmp_path, make_settings):
+    settings = make_settings(clip_max_duration_seconds=300)
+    processor = MediaProcessor(settings)
+
+    input_path = tmp_path / "input.mp4"
+    input_path.write_bytes(b"video")
+
+    candidate = MediaCandidate(
+        url="https://example.com",
+        title="Long Input",
+        duration_seconds=None,
+        file_size_bytes=2 * 1024 * 1024,
+        media_type="video/mp4",
+        source="direct",
+        local_path=str(input_path),
+    )
+
+    called = {"compatible": False}
+
+    async def fake_probe(_path):
+        return 20 * 60.0
+
+    async def fake_compatible(_path):
+        called["compatible"] = True
+        return True
+
+    monkeypatch.setattr(processor, "_probe_duration_seconds", fake_probe)
+    monkeypatch.setattr(processor, "_is_telegram_compatible_video", fake_compatible)
+
+    with pytest.raises(MediaProcessingError, match="20m00s"):
+        await processor.process_media(candidate)
+
+    assert called["compatible"] is False

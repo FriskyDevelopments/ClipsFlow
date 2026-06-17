@@ -135,11 +135,12 @@ class TestPipelineFailures:
 
 
 class TestPipelineUserMessages:
-    async def test_ready_message_contains_title(self, make_pipeline):
+    async def test_ready_message_uses_neutral_export_copy(self, make_pipeline):
         pipeline = make_pipeline()
         result = await pipeline.process("https://mock.example.com/clip")
         msg = result.user_message()
-        assert "Mock Clip" in msg
+        assert "Mock Clip" not in msg
+        assert "Clip export" in msg
 
     async def test_rejected_message_is_friendly(self, make_pipeline):
         pipeline = make_pipeline(clip_max_duration_seconds=1)

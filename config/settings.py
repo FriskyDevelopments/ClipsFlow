@@ -19,6 +19,14 @@ from core.config.parsers import parse_bool_env, parse_int_env
 load_dotenv()  # no-op if .env is absent (CI/production uses real env vars)
 
 
+def _strip_quoted_env(value: str) -> str:
+    """Strip surrounding single/double quotes that may be embedded in Secret Manager values."""
+    raw = (value or "").strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in {"'", '"'}:
+        return raw[1:-1].strip()
+    return raw
+
+
 class Settings:
     """Application-wide configuration, sourced entirely from the environment."""
 
@@ -39,13 +47,21 @@ class Settings:
     long_video_fast_path_seconds: int
     telegram_target_video_mb: int
     processing_timeout_seconds: int
+    telegram_delivery_timeout_seconds: int
+    free_watermark_enabled: bool
+    free_watermark_text: str
+    free_trial_export_limit: int
     telegram_admin_ids: list[int]
     honeybadger_api_key: str | None
     referral_commission_cents: int
+    telegram_stars_pro_price: int
 
     # ── Provider ──────────────────────────────────────────────────────────
     clip_provider: str
     youtube_api_key: str
+    ytdlp_cookie_file: str
+    ytdlp_cookies_b64: str
+    ytdlp_impersonate: str
 
     # ── Application ───────────────────────────────────────────────────────
     app_env: str
@@ -55,11 +71,14 @@ class Settings:
     # ── Jules AI / Autohealing ────────────────────────────────────────────
     jules_api_key: str
     miniapp_url: str
+    friskydev_environment: str
 
     def __init__(self) -> None:
-        self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        self.telegram_bot_token = _strip_quoted_env(os.getenv("TELEGRAM_BOT_TOKEN", ""))
         self.telegram_api_id = parse_int_env("TELEGRAM_API_ID", default=37265246, min_val=0)
-        self.telegram_api_hash = os.getenv("TELEGRAM_API_HASH", "d03fb9f3c1a1f755cfb61d4402a5d889")
+        self.telegram_api_hash = _strip_quoted_env(
+            os.getenv("TELEGRAM_API_HASH", "d03fb9f3c1a1f755cfb61d4402a5d889")
+        )
         self.clip_max_duration_seconds = parse_int_env(
             "CLIP_MAX_DURATION_SECONDS", default=300, min_val=1
         )
@@ -71,8 +90,12 @@ class Settings:
 
         self.clip_provider = os.getenv("CLIP_PROVIDER", "mock").strip().lower()
         self.youtube_api_key = os.getenv("YOUTUBE_API_KEY", "")
+        self.ytdlp_cookie_file = _strip_quoted_env(os.getenv("YTDLP_COOKIE_FILE", "")).strip()
+        self.ytdlp_cookies_b64 = _strip_quoted_env(os.getenv("YTDLP_COOKIES_B64", "")).strip()
+        self.ytdlp_impersonate = _strip_quoted_env(os.getenv("YTDLP_IMPERSONATE", "")).strip()
         self.jules_api_key = os.getenv("JULES_API_KEY", "")
-        self.miniapp_url = os.getenv("MINIAPP_URL", "https://clipsflow.tech/miniapp")
+        self.miniapp_url = _strip_quoted_env(os.getenv("MINIAPP_URL", "https://clipsflow.tech/miniapp")).strip()
+        self.friskydev_environment = os.getenv("FRISKYDEV_ENVIRONMENT", "friskydev")
 
         raw_app_env = os.getenv("APP_ENV", "development").strip().lower()
         self.app_env = raw_app_env
@@ -104,15 +127,28 @@ class Settings:
         self.processing_timeout_seconds = parse_int_env(
             "PROCESSING_TIMEOUT_SECONDS", default=180, min_val=1
         )
+        self.telegram_delivery_timeout_seconds = parse_int_env(
+            "TELEGRAM_DELIVERY_TIMEOUT_SECONDS", default=600, min_val=1
+        )
+        self.free_watermark_enabled = parse_bool_env("FREE_WATERMARK_ENABLED", default=True)
+        self.free_watermark_text = os.getenv("FREE_WATERMARK_TEXT", "ClipFLOW Free").strip() or "ClipFLOW Free"
+        self.free_trial_export_limit = parse_int_env(
+            "FREE_TRIAL_EXPORT_LIMIT", default=25, min_val=0
+        )
         raw_admin_ids = os.getenv("TELEGRAM_ADMIN_IDS", "")
         self.telegram_admin_ids = [
             int(admin_id.strip())
             for admin_id in raw_admin_ids.split(",")
             if admin_id.strip().isdigit()
         ]
-        self.honeybadger_api_key = os.getenv("HONEYBADGER_API_KEY", "").strip() or None
+        self.honeybadger_api_key = _strip_quoted_env(
+            os.getenv("HONEYBADGER_API_KEY", "").strip()
+        ) or None
         self.referral_commission_cents = parse_int_env(
             "REFERRAL_COMMISSION_CENTS", default=500, min_val=0
+        )
+        self.telegram_stars_pro_price = parse_int_env(
+            "TELEGRAM_STARS_PRO_PRICE", default=250, min_val=1
         )
 
     @property

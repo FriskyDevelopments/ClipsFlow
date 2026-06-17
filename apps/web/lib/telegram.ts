@@ -11,6 +11,13 @@ export type TelegramWebApp = {
   initDataUnsafe?: { user?: TelegramWebAppUser };
   ready: () => void;
   expand: () => void;
+  close: () => void;
+  setBackgroundColor: (color: string) => void;
+  setHeaderColor: (color: string) => void;
+  HapticFeedback?: {
+    impactOccurred: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void;
+  };
+  openLink?: (url: string) => void;
   sendData?: (data: string) => void;
 };
 

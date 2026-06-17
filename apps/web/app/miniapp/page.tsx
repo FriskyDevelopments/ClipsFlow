@@ -1,99 +1,136 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getTelegramWebApp, type TelegramWebAppUser } from "../../lib/telegram";
 import RunesLoading from "../../components/RunesLoading";
-import ClipResultCard from "../../components/ClipResultCard";
 
-type ClipResult = {
-  title: string;
-  thumbnail: string;
-  duration: string;
+type DeskState = "idle" | "handoff" | "sent" | "preview";
+
+const deskCopy: Record<DeskState, { title: string; detail: string }> = {
+  idle: {
+    title: "Private clipping desk",
+    detail: "Paste a public video link and the bot will return the finished export in Telegram.",
+  },
+  handoff: {
+    title: "Handing link to Telegram",
+    detail: "Keep the chat nearby. Delivery status continues in the bot until the file is actually sent.",
+  },
+  sent: {
+    title: "Request received",
+    detail: "Your export is now moving through the bot pipeline. Free exports carry the ClipFLOW watermark.",
+  },
+  preview: {
+    title: "Telegram bridge preview",
+    detail: "Open this page from the bot to send real clip requests.",
+  },
 };
 
 export default function MiniAppPage() {
   const [user, setUser] = useState<TelegramWebAppUser | null>(null);
   const [url, setUrl] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<ClipResult | null>(null);
+  const [deskState, setDeskState] = useState<DeskState>("idle");
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const trimmedUrl = url.trim();
+  const currentCopy = deskCopy[deskState];
+  const userLabel = useMemo(() => {
+    if (!user) return "guest session";
+    return user.username ? `@${user.username}` : user.first_name;
+  }, [user]);
 
   useEffect(() => {
     const webApp = getTelegramWebApp();
 
     if (!webApp) {
-      console.warn("Not inside Telegram");
       return;
     }
 
     webApp.ready();
     webApp.expand();
-
     setUser(webApp.initDataUnsafe?.user ?? null);
-
-    console.log("TG USER:", webApp.initDataUnsafe?.user);
-    console.log("INIT DATA:", webApp.initData);
   }, []);
 
   const handleProcess = async () => {
-    if (!url) {
+    if (!trimmedUrl) {
+      setNotice("Paste a video URL first.");
       return;
     }
 
-    setLoading(true);
-    setResult(null);
+    setDeskState("handoff");
+    setNotice(null);
 
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    setResult({
-      title: "Clip ready",
-      thumbnail: "https://placehold.co/400x300",
-      duration: "0:12",
-    });
-
-    setLoading(false);
-  };
-
-  const handleSend = () => {
     const webApp = getTelegramWebApp();
-    if (!webApp?.sendData || !result) {
+    if (webApp?.sendData) {
+      webApp.sendData(
+        JSON.stringify({
+          action: "process_clip",
+          url: trimmedUrl,
+          source: "clipsflow-miniapp",
+        }),
+      );
+      webApp.HapticFeedback?.impactOccurred("soft");
+      setDeskState("sent");
       return;
     }
 
-    webApp.sendData(JSON.stringify({ clip_id: "demo-clip-123" }));
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    setDeskState("preview");
   };
 
   return (
-    <div className="min-h-screen bg-[#11131a] text-white p-4">
-      <h1 className="text-xl font-bold mb-4">ClipsFlow</h1>
+    <main className="min-h-screen overflow-hidden bg-[#0d1016] text-[#f7f4ec]">
+      <section className="mx-auto flex min-h-screen w-full max-w-md flex-col px-5 py-5">
+        <header className="flex items-center justify-between text-[11px] uppercase tracking-[0.16em] text-[#a9b4af]">
+          <span>ClipsFlow</span>
+          <span>{userLabel}</span>
+        </header>
 
-      {user && (
-        <div className="text-sm opacity-70 mb-4">
-          @{user.username || user.first_name}
+        <div className="flex flex-1 flex-col justify-center gap-7 py-8">
+          <div className="space-y-3">
+            <h1 className="max-w-[11ch] text-5xl font-semibold leading-[0.95] text-[#fffaf0]">
+              {currentCopy.title}
+            </h1>
+            <p className="max-w-sm text-[15px] leading-6 text-[#b9c3bd]">{currentCopy.detail}</p>
+          </div>
+
+          <RunesLoading active={deskState === "handoff"} state={deskState} />
+
+          <div className="space-y-3">
+            <label className="block text-[11px] uppercase tracking-[0.16em] text-[#8d9895]" htmlFor="clip-url">
+              Video link
+            </label>
+            <input
+              id="clip-url"
+              value={url}
+              onChange={(event) => {
+                setUrl(event.target.value);
+                if (deskState !== "idle") setDeskState("idle");
+              }}
+              placeholder="https://..."
+              className="w-full rounded-md border border-[#2b3435] bg-[#111822] px-4 py-4 text-[15px] text-[#fffaf0] outline-none transition focus:border-[#d6ef7d] focus:ring-2 focus:ring-[#d6ef7d]/15"
+            />
+            <button
+              onClick={handleProcess}
+              disabled={deskState === "handoff"}
+              className="w-full rounded-md bg-[#d6ef7d] px-4 py-4 text-[14px] font-semibold text-[#12160f] transition hover:bg-[#e4ff8a] disabled:cursor-wait disabled:bg-[#2f3a33] disabled:text-[#8c978f]"
+            >
+              {deskState === "handoff" ? "Preparing handoff" : "Send to Telegram"}
+            </button>
+          </div>
+
+          {notice && (
+            <p className="rounded-md border border-[#463934] bg-[#1b1515] px-4 py-3 text-sm text-[#f3c7b5]">
+              {notice}
+            </p>
+          )}
         </div>
-      )}
 
-      <input
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="Paste video URL..."
-        className="w-full p-3 rounded bg-[#171b26] border border-white/10 mb-3"
-      />
-
-      <button
-        onClick={handleProcess}
-        disabled={loading}
-        className={`w-full p-3 rounded font-bold transition-all ${
-          loading
-            ? "bg-white/10 text-white/50 cursor-not-allowed"
-            : "bg-gradient-to-r from-pink-500 to-cyan-400 text-black hover:opacity-90"
-        }`}
-      >
-        {loading ? "Processing..." : "Process Clip"}
-      </button>
-
-      {loading && <RunesLoading />}
-
-      {result && <ClipResultCard result={result} onSend={handleSend} />}
-    </div>
+        <footer className="grid grid-cols-3 gap-2 border-t border-[#222b2c] pt-4 text-[11px] text-[#8d9895]">
+          <span>Watermarked trial</span>
+          <span className="text-center">Clean Pro later</span>
+          <span className="text-right">Telegram delivery</span>
+        </footer>
+      </section>
+    </main>
   );
 }

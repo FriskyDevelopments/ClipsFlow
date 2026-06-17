@@ -35,6 +35,8 @@ from core.url_safety import redact_url
 logger = logging.getLogger(__name__)
 
 BUFFER_FLUSH_BYTES = 1024 * 1024
+DOWNLOAD_PROGRESS_LOG_INTERVAL_SECONDS = 8.0
+DOWNLOAD_STALL_TIMEOUT_SECONDS = 45.0
 
 
 class MediaProcessingError(Exception):
@@ -59,6 +61,16 @@ class MediaProcessor:
                 created_paths.append(input_path)
 
             logger.info("[DOWNLOAD] source=%s input=%s", redact_url(source_url), input_path)
+
+            probed_duration = await self._probe_duration_seconds(input_path)
+            if probed_duration is not None:
+                candidate.duration_seconds = probed_duration
+                max_duration = self._settings.clip_max_duration_seconds
+                if probed_duration > max_duration:
+                    raise MediaProcessingError(
+                        f"Video is {self._format_duration(probed_duration)} long, "
+                        f"which exceeds the {self._format_duration(max_duration)} trial limit."
+                    )
 
             if await self._is_video_sendable(input_path) and self._is_mp4_path(input_path):
                 if await self._is_telegram_compatible_video(input_path):
@@ -146,6 +158,8 @@ class MediaProcessor:
 
 
             )
+        except MediaProcessingError:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise MediaProcessingError("Failed to process media through fallback pipeline") from exc
         finally:
@@ -231,6 +245,38 @@ class MediaProcessor:
             output_path,
         ]
         await self._run_subprocess(cmd, step="FAST-PATH")
+        return output_path
+
+    async def apply_free_watermark(self, path: str) -> str:
+        logger.info("[WATERMARK] input=%s", path)
+        output_path = self._new_temp_path(".mp4")
+        text = self._settings.free_watermark_text.replace("\\", "\\\\").replace(":", "\\:")
+        watermark_filter = (
+            "drawtext="
+            f"text='{text}':"
+            "x=w-tw-32:y=h-th-30:"
+            "fontsize=max(28\\,h/28):"
+            "fontcolor=white@0.92:"
+            "box=1:"
+            "boxcolor=black@0.58:"
+            "boxborderw=18"
+        )
+        cmd = self._base_ffmpeg_cmd(path) + [
+            "-vf",
+            watermark_filter,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
+            output_path,
+        ]
+        await self._run_subprocess(cmd, step="WATERMARK")
         return output_path
 
     async def extract_clip(self, path: str, clip_seconds: int = 30) -> str:
@@ -379,24 +425,72 @@ class MediaProcessor:
         os.close(fd)
 
         max_download_bytes = self._settings.clip_max_file_size_mb * 1024 * 1024
-        upper_limit = min(candidate.file_size_bytes or max_download_bytes, max_download_bytes)
+        upper_limit = max_download_bytes
+        candidate_size_hint = candidate.file_size_bytes
+        expected_bytes = None
         started_at = time.perf_counter()
+        last_progress_log = started_at
         
         headers = {}
         if candidate.extra and "http_headers" in candidate.extra:
             headers = candidate.extra["http_headers"]
 
         try:
-            async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
+            timeout = httpx.Timeout(
+                timeout=DOWNLOAD_STALL_TIMEOUT_SECONDS,
+                connect=15.0,
+                read=DOWNLOAD_STALL_TIMEOUT_SECONDS,
+                write=60.0,
+                pool=60.0,
+            )
+            async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
                 async with client.stream("GET", candidate.direct_url) as resp:
                     resp.raise_for_status()
+                    headers = getattr(resp, "headers", {})
+                    content_length = headers.get("content-length") if hasattr(headers, "get") else None
+                    if content_length and content_length.isdigit():
+                        try:
+                            expected_bytes = int(content_length)
+                        except ValueError:
+                            expected_bytes = None
+
                     downloaded = 0
                     with open(temp_path, "wb") as f:
                         async for chunk in resp.aiter_bytes(chunk_size=BUFFER_FLUSH_BYTES * 4):
+                            if not chunk:
+                                continue
                             downloaded += len(chunk)
                             if downloaded > upper_limit:
                                 raise MediaProcessingError("Download size exceeded maximum limit")
                             f.write(chunk)
+
+                            now = time.perf_counter()
+                            if now - last_progress_log >= DOWNLOAD_PROGRESS_LOG_INTERVAL_SECONDS:
+                                if expected_bytes:
+                                    pct = min(int((downloaded / expected_bytes) * 100), 100)
+                                    logger.info(
+                                        "[DOWNLOAD] progress=%s%% bytes=%s/%s",
+                                        pct,
+                                        downloaded,
+                                        expected_bytes,
+                                    )
+                                else:
+                                    logger.info("[DOWNLOAD] progress bytes=%s", downloaded)
+                                last_progress_log = now
+            if candidate_size_hint is None:
+                logger.info("[DOWNLOAD] no provider size hint; size limit enforced at %.1f MB", self._settings.clip_max_file_size_mb)
+            elif expected_bytes is None:
+                logger.info(
+                    "[DOWNLOAD] provider size hint=%s MB ignored for download cap; enforcing %.1f MB",
+                    candidate_size_hint / (1024 * 1024),
+                    self._settings.clip_max_file_size_mb,
+                )
+            elif expected_bytes != candidate_size_hint:
+                logger.info(
+                    "[DOWNLOAD] content-length=%s differs from provider hint=%s",
+                    expected_bytes,
+                    candidate_size_hint,
+                )
         except Exception:
             with contextlib.suppress(FileNotFoundError):
                 os.remove(temp_path)
@@ -450,6 +544,46 @@ class MediaProcessor:
         except Exception as exc:
             logger.debug("[FAST-PASS REJECT] ffprobe check failed: %s", exc)
             return False
+
+    async def _probe_duration_seconds(self, path: str) -> Optional[float]:
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path,
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+        except (asyncio.TimeoutError, FileNotFoundError, OSError) as exc:
+            logger.warning("[FFPROBE] duration probe unavailable: %s", exc)
+            return None
+
+        if proc.returncode != 0:
+            return None
+
+        try:
+            duration = float(stdout.decode().strip())
+        except ValueError:
+            return None
+
+        return duration if duration > 0 else None
+
+    @staticmethod
+    def _format_duration(seconds: float | int) -> str:
+        total_seconds = int(seconds)
+        mins, secs = divmod(total_seconds, 60)
+        if mins:
+            return f"{mins}m{secs:02d}s"
+        return f"{secs}s"
 
     async def _cleanup_intermediate_files(self, paths: list[str]) -> None:
         if self._settings.is_development:

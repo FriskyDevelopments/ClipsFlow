@@ -73,7 +73,8 @@ class TestClipResult:
             processed_media=pm,
         )
         msg = r.user_message()
-        assert "Test Clip" in msg
+        assert "Test Clip" not in msg
+        assert "Clip export" in msg
         assert "1m30s" in msg
         assert "5.0 MB" in msg
         assert "ASSET REFINED" in msg

@@ -143,9 +143,15 @@ def main() -> None:
             self.wfile.write(b"OK")
         def log_message(self, format, *args): pass
     port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    logger.info(f"Cloud Run healthcheck server listening on port {port}")
+    try:
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        logger.info(f"Cloud Run healthcheck server listening on port {port}")
+    except OSError as e:
+        if settings.is_development:
+            logger.warning(f"Could not start Cloud Run healthcheck server on port {port} ({e}) - continuing anyway since we are in development mode.")
+        else:
+            raise
     # ----------------------
 
     app.run()

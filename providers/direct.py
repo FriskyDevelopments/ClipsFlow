@@ -17,7 +17,7 @@ class DirectProvider(BaseProvider):
     def can_handle(self, url: str) -> bool:
         return any(url.lower().endswith(ext) for ext in (".mp4", ".webm", ".mov", ".mkv", ".mp3", ".m4a"))
 
-    async def resolve(self, url: str) -> Optional[MediaCandidate]:
+    async def resolve(self, url: str, proxy: Optional[str] = None) -> Optional[MediaCandidate]:
         parsed = urlparse(url)
         path = parsed.path
         raw_ext = path.rsplit('.', 1)[-1] if '.' in path else ''

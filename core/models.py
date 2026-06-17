@@ -129,12 +129,10 @@ class ClipResult:
             if size_value is not None:
                 size_str = f" · {size_value / (1024 * 1024):.1f} MB"
 
-            escaped_title = _escape_html(c.title or "Untitled Asset")
-
             return (
                 f"█▀▀▀▀▀▀ ◈ ▀▀▀▀▀▀█\n"
                 f"<b>ASSET REFINED</b>\n\n"
-                f"📹 {escaped_title}{duration_str}{size_str}\n"
+                f"Clip export{duration_str}{size_str}\n"
                 f"<i>Delivered via secure channel.</i>"
             )
 

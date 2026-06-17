@@ -53,9 +53,21 @@ def init_db() -> None:
             _ensure_column(conn, "users", "pro_referral_count", "INTEGER DEFAULT 0")
             _ensure_column(conn, "users", "commission_cents", "INTEGER DEFAULT 0")
             _ensure_column(conn, "users", "granted_for_free", "BOOLEAN DEFAULT 0")
+            _ensure_column(conn, "users", "friskydev_account_id", "TEXT")
+            _ensure_column(conn, "users", "friskydev_environment", "TEXT")
+            _ensure_column(conn, "users", "friskydev_account_status", "TEXT")
+            _ensure_column(conn, "users", "pro_upgrade_requested_at", "TEXT")
+            _ensure_column(conn, "users", "telegram_stars_charge_id", "TEXT")
+            _ensure_column(conn, "users", "telegram_stars_paid_at", "TEXT")
+            _ensure_column(conn, "users", "telegram_stars_amount", "INTEGER DEFAULT 0")
+            _ensure_column(conn, "users", "free_exports_used", "INTEGER DEFAULT 0")
+            _ensure_column(conn, "users", "last_free_export_at", "TEXT")
             _ensure_column(conn, "users", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)"
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_friskydev_account_id ON users(friskydev_account_id)"
             )
 
 
@@ -104,6 +116,66 @@ def ensure_user(platform: str, platform_id: str, username: str | None = None) ->
                 """,
                 (platform, platform_id, username, referral_code),
             )
+            return dict(_get_user_locked(conn, platform, platform_id))
+
+
+def _generate_friskydev_account_id() -> str:
+    return f"fdev_{secrets.token_urlsafe(9).replace('-', '').replace('_', '').lower()[:12]}"
+
+
+def _create_unique_friskydev_account_id(conn: sqlite3.Connection) -> str:
+    for _ in range(5):
+        account_id = _generate_friskydev_account_id()
+        existing = conn.execute(
+            "SELECT 1 FROM users WHERE friskydev_account_id = ?",
+            (account_id,),
+        ).fetchone()
+        if not existing:
+            return account_id
+    raise RuntimeError("Failed to generate unique FriskyDev account id")
+
+
+def ensure_friskydev_account(
+    platform: str,
+    platform_id: str,
+    username: str | None = None,
+    environment: str = "friskydev",
+) -> dict[str, Any]:
+    """Create or attach the user's FriskyDev account record for Pro upgrade flows."""
+    init_db()
+    with closing(get_connection()) as conn:
+        with conn:
+            user = _get_user_locked(conn, platform, platform_id)
+            if not user:
+                referral_code = _create_unique_referral_code(conn)
+                conn.execute(
+                    """
+                    INSERT INTO users (platform, platform_id, username, is_pro, keyboard_installed, referral_code)
+                    VALUES (?, ?, ?, 0, 0, ?)
+                    """,
+                    (platform, platform_id, username, referral_code),
+                )
+                user = _get_user_locked(conn, platform, platform_id)
+            elif username and username != user["username"]:
+                conn.execute(
+                    "UPDATE users SET username = ? WHERE platform = ? AND platform_id = ?",
+                    (username, platform, platform_id),
+                )
+
+            account_id = user["friskydev_account_id"] or _create_unique_friskydev_account_id(conn)
+            status = "pro_active" if bool(user["is_pro"]) else "pro_pending"
+            conn.execute(
+                """
+                UPDATE users
+                SET friskydev_account_id = ?,
+                    friskydev_environment = ?,
+                    friskydev_account_status = ?,
+                    pro_upgrade_requested_at = CURRENT_TIMESTAMP
+                WHERE platform = ? AND platform_id = ?
+                """,
+                (account_id, environment, status, platform, platform_id),
+            )
+
             return dict(_get_user_locked(conn, platform, platform_id))
 
 
@@ -227,6 +299,90 @@ def update_user_by_customer_id(stripe_customer_id: str, is_pro: bool) -> list[tu
                 )
 
     return users
+
+
+def mark_telegram_stars_payment(
+    platform: str,
+    platform_id: str,
+    stars_amount: int,
+    charge_id: str,
+    environment: str = "friskydev",
+) -> dict[str, Any]:
+    """Mark a Telegram Stars payment as Pro entitlement for the user's FriskyDev account."""
+    init_db()
+    with closing(get_connection()) as conn:
+        with conn:
+            user = _get_user_locked(conn, platform, platform_id)
+            if not user:
+                referral_code = _create_unique_referral_code(conn)
+                conn.execute(
+                    """
+                    INSERT INTO users (platform, platform_id, is_pro, keyboard_installed, referral_code)
+                    VALUES (?, ?, 0, 0, ?)
+                    """,
+                    (platform, platform_id, referral_code),
+                )
+                user = _get_user_locked(conn, platform, platform_id)
+
+            account_id = user["friskydev_account_id"] or _create_unique_friskydev_account_id(conn)
+            conn.execute(
+                """
+                UPDATE users
+                SET is_pro = 1,
+                    friskydev_account_id = ?,
+                    friskydev_environment = ?,
+                    friskydev_account_status = 'pro_active',
+                    telegram_stars_charge_id = ?,
+                    telegram_stars_paid_at = CURRENT_TIMESTAMP,
+                    telegram_stars_amount = ?
+                WHERE platform = ? AND platform_id = ?
+                """,
+                (account_id, environment, charge_id, stars_amount, platform, platform_id),
+            )
+
+            return dict(_get_user_locked(conn, platform, platform_id))
+
+
+def get_free_trial_state(platform: str, platform_id: str, limit: int) -> dict[str, int | bool]:
+    """Return remaining lifetime free exports for a user."""
+    user = ensure_user(platform, platform_id)
+    used = int(user.get("free_exports_used") or 0)
+    remaining = max(limit - used, 0)
+    return {
+        "used": used,
+        "limit": limit,
+        "remaining": remaining,
+        "exhausted": limit > 0 and used >= limit,
+    }
+
+
+def record_free_export(platform: str, platform_id: str) -> dict[str, int]:
+    """Increment the user's delivered free export count."""
+    init_db()
+    with closing(get_connection()) as conn:
+        with conn:
+            user = _get_user_locked(conn, platform, platform_id)
+            if not user:
+                referral_code = _create_unique_referral_code(conn)
+                conn.execute(
+                    """
+                    INSERT INTO users (platform, platform_id, is_pro, keyboard_installed, referral_code)
+                    VALUES (?, ?, 0, 0, ?)
+                    """,
+                    (platform, platform_id, referral_code),
+                )
+
+            conn.execute(
+                """
+                UPDATE users
+                SET free_exports_used = COALESCE(free_exports_used, 0) + 1,
+                    last_free_export_at = CURRENT_TIMESTAMP
+                WHERE platform = ? AND platform_id = ?
+                """,
+                (platform, platform_id),
+            )
+            updated = _get_user_locked(conn, platform, platform_id)
+            return {"used": int(updated["free_exports_used"] or 0)}
 
 
 def get_referral_stats(platform: str, platform_id: str) -> dict[str, int]:

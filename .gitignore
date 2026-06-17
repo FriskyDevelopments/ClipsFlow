@@ -17,6 +17,8 @@ ENV/
 
 # Environment variables
 .env
+.dev-bridge.env
+.ngrok-bridge.log
 
 # pytest
 .pytest_cache/
@@ -48,4 +50,5 @@ temp/node_modules/
 apps/web/node_modules/
 data/db.json
 /apps/web/node_modules
+apps/web/.next/
 node_modules/

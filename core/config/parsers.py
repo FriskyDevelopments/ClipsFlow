@@ -20,6 +20,8 @@ def parse_bool_env(key: str, default: bool = False) -> bool:
 def parse_int_env(key: str, default: int, min_val: int | None = None, max_val: int | None = None) -> int:
     """Parse an integer environment variable."""
     val = os.getenv(key, "").strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in {"'", '"'}:
+        val = val[1:-1].strip()
     if not val:
         return default
     try:

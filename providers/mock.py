@@ -12,7 +12,7 @@ class MockProvider(BaseProvider):
     def can_handle(self, url: str) -> bool:
         return "mock.example.com" in url
 
-    async def resolve(self, url: str) -> Optional[MediaCandidate]:
+    async def resolve(self, url: str, proxy: Optional[str] = None) -> Optional[MediaCandidate]:
         if "fail=1" in url:
             from providers.base import ProviderError
             raise ProviderError("mock fail", retryable=False)

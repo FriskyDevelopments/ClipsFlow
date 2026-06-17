@@ -1,0 +1,69 @@
+substitutions:
+  _REGION: us-central1
+  _BOT_SERVICE: clipsflow-bot
+  _WEB_SERVICE: clipsflow-web
+  _IMAGE_TAG: manual
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/clipsflow/${_BOT_SERVICE}:${_IMAGE_TAG}
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/clipsflow/${_WEB_SERVICE}:${_IMAGE_TAG}
+      - apps/web
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/clipsflow/${_BOT_SERVICE}:${_IMAGE_TAG}
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/clipsflow/${_WEB_SERVICE}:${_IMAGE_TAG}
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_BOT_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/clipsflow/${_BOT_SERVICE}:${_IMAGE_TAG}
+      - --region=${_REGION}
+      - --platform=managed
+      - --no-allow-unauthenticated
+      - --min-instances=1
+      - --max-instances=1
+      - --no-cpu-throttling
+      - --memory=1Gi
+      - --cpu=1
+      - --timeout=3600
+      - --set-env-vars=^:^APP_ENV=production:FRISKYDEV_ENVIRONMENT=friskydev:TELEGRAM_STARS_PRO_PRICE=250:CLIP_PROVIDER=direct,youtube,tiktok,instagram,x
+      - --update-secrets=TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,TELEGRAM_API_ID=TELEGRAM_API_ID:latest,TELEGRAM_API_HASH=TELEGRAM_API_HASH:latest,MINIAPP_URL=MINIAPP_URL:latest,DOPPLER_PROJECT=DOPPLER_PROJECT:latest,DOPPLER_CONFIG=DOPPLER_CONFIG:latest
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_WEB_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/clipsflow/${_WEB_SERVICE}:${_IMAGE_TAG}
+      - --region=${_REGION}
+      - --platform=managed
+      - --min-instances=0
+      - --max-instances=3
+      - --memory=512Mi
+      - --cpu=1
+      - --set-env-vars=NODE_ENV=production
+      - --update-secrets=STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest,STRIPE_PRICE_PRO_MONTHLY=STRIPE_PRICE_PRO_MONTHLY:latest,NEXT_PUBLIC_APP_URL=NEXT_PUBLIC_APP_URL:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/clipsflow/${_BOT_SERVICE}:${_IMAGE_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/clipsflow/${_WEB_SERVICE}:${_IMAGE_TAG}

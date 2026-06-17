@@ -1,0 +1,27 @@
+{
+  "name": "clipsflow-pipeline-remotion",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio src/index.ts --browser-executable=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --chrome-mode=chrome-for-testing",
+    "render:intake": "remotion render src/index.ts PipelineIntake out/pipeline-intake.mp4 --port=3042 --concurrency=1 --browser-executable=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --chrome-mode=chrome-for-testing",
+    "render:guardrails": "remotion render src/index.ts PipelineGuardrails out/pipeline-guardrails.mp4 --port=3042 --concurrency=1 --browser-executable=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --chrome-mode=chrome-for-testing",
+    "render:delivery": "remotion render src/index.ts PipelineDelivery out/pipeline-delivery.mp4 --port=3042 --concurrency=1 --browser-executable=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --chrome-mode=chrome-for-testing",
+    "render:all": "npm run render:intake && npm run render:guardrails && npm run render:delivery",
+    "still:intake": "remotion still src/index.ts PipelineIntake out/pipeline-intake.png --frame=240 --scale=0.5 --browser-executable=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --chrome-mode=chrome-for-testing",
+    "still:guardrails": "remotion still src/index.ts PipelineGuardrails out/pipeline-guardrails.png --frame=240 --scale=0.5 --browser-executable=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --chrome-mode=chrome-for-testing",
+    "still:delivery": "remotion still src/index.ts PipelineDelivery out/pipeline-delivery.png --frame=240 --scale=0.5 --browser-executable=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --chrome-mode=chrome-for-testing",
+    "still:all": "npm run still:intake && npm run still:guardrails && npm run still:delivery",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.372",
+    "@remotion/renderer": "^4.0.372",
+    "remotion": "^4.0.372",
+    "typescript": "^5.8.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

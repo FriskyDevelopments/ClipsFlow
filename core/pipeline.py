@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 from itertools import cycle
 from config.settings import get_settings
 
@@ -84,6 +85,7 @@ class ClipPipeline:
         settings = get_settings()
         proxy_iter = cycle(settings.proxy_pool) if settings.proxy_pool else None
         
+        provider_started_at = time.perf_counter()
         while attempt <= max_retries:
             try:
                 proxy = next(proxy_iter) if proxy_iter else None
@@ -123,6 +125,13 @@ class ClipPipeline:
                 rejection_reason=RejectionReason.UNAVAILABLE,
                 rejection_message="The media could not be retrieved. It may be private or unavailable.",
             )
+        logger.info(
+            "[TIMING] provider_resolve provider=%s seconds=%.3f size_bytes=%s duration=%s",
+            provider.name,
+            time.perf_counter() - provider_started_at,
+            candidate.file_size_bytes,
+            candidate.duration_seconds,
+        )
 
         # ── Step 3: Clip validation ───────────────────────────────────
         validation = self._validator.validate(candidate, normalized_url)
@@ -132,7 +141,14 @@ class ClipPipeline:
         # ── Step 4: Media processing ─────────────────────────────────
         safe_url = redact_url(normalized_url)
         try:
+            processing_started_at = time.perf_counter()
             processed: ProcessedMedia = await self._media_processor.process_media(candidate)
+            logger.info(
+                "[TIMING] media_processing seconds=%.3f output_bytes=%s mime=%s",
+                time.perf_counter() - processing_started_at,
+                processed.size_bytes,
+                processed.mime_type,
+            )
         except MediaProcessingError as exc:
             logger.error("Processing error: url=%s reason=%s", safe_url, exc)
             return ClipResult(
