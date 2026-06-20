@@ -98,6 +98,10 @@ docker run -p 3000:3000 -v clipsflow-data:/app/data clipsflow
 
 The container runs as a non-root user and persists clips to the `/app/data` volume.
 
+For the production path on Google Cloud Run — one-command `./deploy.sh`,
+the `cloudbuild.yaml` pipeline, durable storage, and retiring old
+revisions/instances — see **[DEPLOY.md](./DEPLOY.md)**.
+
 ## Testing & CI
 
 `npm test` runs validator, store, and HTTP route tests (via Supertest) against an isolated temp data directory. GitHub Actions (`.github/workflows/ci.yml`) typechecks, builds, and tests on every push and pull request.
