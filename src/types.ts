@@ -25,3 +25,10 @@ export interface ClipQuery {
   page?: number;
   limit?: number;
 }
+
+export interface PaginatedClips {
+  data: Clip[];
+  total: number;
+  page: number;
+  limit: number;
+}
