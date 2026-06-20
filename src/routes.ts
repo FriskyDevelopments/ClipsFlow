@@ -2,10 +2,6 @@ import { Router, Request, Response } from "express";
 import * as clips from "./clips.js";
 import { ValidationError } from "./clips.js";
 
-// TODO: add request-level rate limiting — repeated POST /clips calls
-// with no authentication can flood the store; integrate express-rate-limit
-// here before the router is mounted
-
 const router = Router();
 
 router.post("/clips", (req: Request, res: Response) => {

@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import * as store from "./store.js";
 import { validateCreateClip, validateUpdateClip } from "./validators.js";
-import { Clip, ClipQuery } from "./types.js";
+import { Clip, ClipQuery, PaginatedClips } from "./types.js";
 
 export class ValidationError extends Error {
   constructor(public readonly errors: string[]) {
@@ -29,11 +29,8 @@ export function createClip(input: unknown): Clip {
   return clip;
 }
 
-// TODO: implement search by tag — listClips() currently ignores
-// query.tag; filter the store results so only clips whose tags array
-// includes the requested tag are returned
-export function listClips(_query: ClipQuery = {}): Clip[] {
-  return store.getAll();
+export function listClips(query: ClipQuery = {}): PaginatedClips {
+  return store.getAll(query);
 }
 
 export function getClip(id: string): Clip | undefined {
