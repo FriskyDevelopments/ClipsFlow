@@ -1,6 +1,8 @@
 # ClipsFlow
 
-A small REST API for managing video clip metadata, built with Express + TypeScript. Clips are persisted to a JSON file store, so it runs with zero external dependencies.
+A small service for managing video clip metadata, built with Express + TypeScript. It is exposed over a **REST API** and a **Discord bot** that share one clip core, persisted to a JSON file store — so it runs with zero external dependencies.
+
+**Docs:** [SPEC.md](./SPEC.md) (full contract) · [DEPLOY.md](./DEPLOY.md) (deploy) · [wiki/](./wiki/Home.md) (guides & runbook)
 
 ## Requirements
 
