@@ -57,6 +57,27 @@ Or via Cloud Build (e.g. wired to a trigger on the go-live branch):
 gcloud builds submit --config cloudbuild.yaml .
 ```
 
+### Continuous deploy (Cloud Build trigger)
+
+To auto-deploy on every push, create the trigger **once** (needs the GitHub
+repo connected to Cloud Build in the GCP console, or via
+`gcloud builds connections`):
+
+```bash
+gcloud builds triggers create github \
+  --name=clipsflow-api-deploy \
+  --repo-name=ClipsFlow \
+  --repo-owner=FriskyDevelopments \
+  --branch-pattern='^claude/clipsflow-go-live-1j0klh$' \
+  --build-config=cloudbuild.yaml \
+  --region=us-central1
+```
+
+Once merged to your production branch, repoint `--branch-pattern` (e.g.
+`^main$`). Grant the Cloud Build service account the `run.admin`,
+`storage.admin`, and `iam.serviceAccountUser` roles so the build step can
+deploy and manage the data bucket. After that, `git push` is the deploy.
+
 After a deploy, verify:
 
 ```bash
@@ -89,7 +110,7 @@ never touches them:
 
 | Resource | Type | Notes |
 |---|---|---|
-| `clipsflow-bot` | Cloud Run service | The **live Python bot** — do not delete. |
+| `clipsflow-bot` | Cloud Run service | The **live Python bot** — do not delete. To prune only its *stale revisions* (keeps the serving one), use `scripts/prune-cloud-run-revisions.sh` in the ClipFLOW repo. |
 | `clipflow-worker-prod` | Compute Engine VM | Created by `ClipFLOW/deploy-prod-gcp.sh`. |
 | `ghost-api-prod` | Cloud Run service | Unrelated Ghost API. |
 
@@ -102,6 +123,33 @@ gcloud run services delete <SERVICE> --region us-central1
 # A stale Compute Engine VM
 gcloud compute instances delete <NAME> --zone us-central1-a
 ```
+
+## Deploying the Discord bot
+
+The bot holds a **persistent gateway (WebSocket) connection** and has no
+inbound HTTP, so it does **not** fit Cloud Run's request-driven, scale-to-zero
+model — a Cloud Run service would idle the container and drop the connection.
+Run it as an **always-on worker** instead, mirroring the sibling
+`clipflow-worker-prod` Compute Engine pattern:
+
+```bash
+# Build/push the same image, then run it with the bot entrypoint on an
+# always-on container host (Compute Engine shown; any always-on runtime works).
+gcloud compute instances create-with-container clipsflow-bot-worker \
+  --zone=us-central1-a \
+  --machine-type=e2-micro \
+  --container-image=us-central1-docker.pkg.dev/$PROJECT_ID/clipsflow/clipsflow-api:latest \
+  --container-command=node \
+  --container-arg=dist/discord/index.js \
+  --container-env=NODE_ENV=production,CLIPS_DATA_DIR=/app/data \
+  --container-env=DISCORD_BOT_TOKEN=...,DISCORD_CLIENT_ID=...
+```
+
+Prefer Secret Manager over `--container-env` for the token in production.
+Register the slash command once (`npm run bot:register`, or a one-shot run of
+the image with `--container-arg=dist/discord/register.js`) before/after first
+boot. If the bot and API run on different hosts, point both at the **same**
+shared store (e.g. the GCS-backed volume) so they see the same clips.
 
 ## Rollback
 
