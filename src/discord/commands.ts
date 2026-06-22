@@ -41,6 +41,11 @@ export async function runClipCommand(
   input: CommandInput,
 ): Promise<CommandResult> {
   try {
+    // get/update/delete require an id; guard so we never assert undefined
+    // through to the store (e.g. if reused outside Discord's required-param check).
+    if (["get", "update", "delete"].includes(input.subcommand) && !input.id) {
+      return { ok: false, message: "Missing clip id" };
+    }
     switch (input.subcommand) {
       case "add": {
         const clip = await clips.createClip(store, {

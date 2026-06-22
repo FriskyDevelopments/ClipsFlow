@@ -86,22 +86,17 @@ export class D1Store implements ClipStore {
 
   async update(id: string, patch: Partial<Clip>): Promise<Clip | undefined> {
     // Build a partial UPDATE touching only the fields present in `patch`, so
-    // we don't read-modify-write the whole row (which races concurrent edits
-    // and would rewrite immutable columns). Maps camelCase fields to columns.
+    // we don't read-modify-write the whole row (which races concurrent edits).
+    // Only mutable fields are listed — title/tags/updated_at — so immutable
+    // columns (file_path, duration_seconds, created_at) can never be changed.
     const columns: Record<string, (c: Partial<Clip>) => string | number> = {
       title: (c) => c.title!,
-      filePath: (c) => c.filePath!,
-      durationSeconds: (c) => c.durationSeconds!,
       tags: (c) => JSON.stringify(c.tags),
-      createdAt: (c) => c.createdAt!,
       updatedAt: (c) => c.updatedAt!,
     };
     const colNames: Record<string, string> = {
       title: "title",
-      filePath: "file_path",
-      durationSeconds: "duration_seconds",
       tags: "tags",
-      createdAt: "created_at",
       updatedAt: "updated_at",
     };
 

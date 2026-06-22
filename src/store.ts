@@ -74,7 +74,9 @@ export class MemoryStore implements ClipStore {
   async update(id: string, patch: Partial<Clip>): Promise<Clip | undefined> {
     const idx = this.clips.findIndex((c) => c.id === id);
     if (idx === -1) return undefined;
-    this.clips[idx] = { ...this.clips[idx], ...patch };
+    // Clone via the merged object so a caller-owned patch.tags array can't
+    // alias persisted state after the call returns.
+    this.clips[idx] = this.clone({ ...this.clips[idx], ...patch });
     return this.clone(this.clips[idx]);
   }
 
