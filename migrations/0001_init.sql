@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS clips (
   title            TEXT NOT NULL,
   file_path        TEXT NOT NULL,
   duration_seconds INTEGER NOT NULL,
-  tags             TEXT NOT NULL DEFAULT '[]',
+  tags             TEXT NOT NULL DEFAULT '[]'
+                     CHECK (json_valid(tags) AND json_type(tags) = 'array'),
   created_at       TEXT NOT NULL,
   updated_at       TEXT NOT NULL
 );

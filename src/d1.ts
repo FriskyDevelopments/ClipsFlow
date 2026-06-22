@@ -85,24 +85,42 @@ export class D1Store implements ClipStore {
   }
 
   async update(id: string, patch: Partial<Clip>): Promise<Clip | undefined> {
-    const existing = await this.getById(id);
-    if (!existing) return undefined;
-    const next: Clip = { ...existing, ...patch };
-    await this.db
-      .prepare(
-        `UPDATE clips SET title = ?, file_path = ?, duration_seconds = ?, tags = ?, updated_at = ?
-         WHERE id = ?`,
-      )
-      .bind(
-        next.title,
-        next.filePath,
-        next.durationSeconds,
-        JSON.stringify(next.tags),
-        next.updatedAt,
-        id,
-      )
+    // Build a partial UPDATE touching only the fields present in `patch`, so
+    // we don't read-modify-write the whole row (which races concurrent edits
+    // and would rewrite immutable columns). Maps camelCase fields to columns.
+    const columns: Record<string, (c: Partial<Clip>) => string | number> = {
+      title: (c) => c.title!,
+      filePath: (c) => c.filePath!,
+      durationSeconds: (c) => c.durationSeconds!,
+      tags: (c) => JSON.stringify(c.tags),
+      createdAt: (c) => c.createdAt!,
+      updatedAt: (c) => c.updatedAt!,
+    };
+    const colNames: Record<string, string> = {
+      title: "title",
+      filePath: "file_path",
+      durationSeconds: "duration_seconds",
+      tags: "tags",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+    };
+
+    const setClauses: string[] = [];
+    const values: (string | number)[] = [];
+    for (const key of Object.keys(columns)) {
+      if (patch[key as keyof Clip] !== undefined) {
+        setClauses.push(`${colNames[key]} = ?`);
+        values.push(columns[key](patch));
+      }
+    }
+    if (setClauses.length === 0) return this.getById(id);
+
+    const res = await this.db
+      .prepare(`UPDATE clips SET ${setClauses.join(", ")} WHERE id = ?`)
+      .bind(...values, id)
       .run();
-    return next;
+    if ((res.meta?.changes ?? 0) === 0) return undefined;
+    return this.getById(id);
   }
 
   async remove(id: string): Promise<boolean> {

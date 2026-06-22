@@ -64,7 +64,9 @@ function toCommandInput(data: { options?: InteractionOption[] }): CommandInput {
   const str = (k: string) => (opts.has(k) ? String(opts.get(k)) : undefined);
   const int = (k: string) => (opts.has(k) ? Number(opts.get(k)) : undefined);
   return {
-    subcommand: (sub?.name ?? "list") as CommandInput["subcommand"],
+    // Don't mask a missing subcommand as "list"; an unknown value is handled
+    // explicitly by runClipCommand's default branch.
+    subcommand: sub?.name as CommandInput["subcommand"],
     title: str("title"),
     filePath: str("file_path"),
     durationSeconds: int("duration"),
@@ -94,10 +96,15 @@ export async function handleInteraction(
   );
   if (!valid) return new Response("invalid request signature", { status: 401 });
 
-  const interaction = JSON.parse(rawBody) as {
+  let interaction: {
     type: number;
     data?: { name?: string; options?: InteractionOption[] };
   };
+  try {
+    interaction = JSON.parse(rawBody);
+  } catch {
+    return new Response("malformed request body", { status: 400 });
+  }
 
   if (interaction.type === InteractionType.PING) {
     return Response.json({ type: ResponseType.PONG });

@@ -39,6 +39,12 @@ export function normalizeLimit(limit: number | undefined): number {
 export class MemoryStore implements ClipStore {
   private clips: Clip[] = [];
 
+  // Copy on the way in and out so callers can't mutate persisted state through
+  // a returned reference — matching D1Store, which materializes fresh objects.
+  private clone(clip: Clip): Clip {
+    return { ...clip, tags: [...clip.tags] };
+  }
+
   async getAll(query: ClipQuery = {}): Promise<PaginatedClips> {
     let clips = this.clips;
 
@@ -51,24 +57,25 @@ export class MemoryStore implements ClipStore {
     const page = normalizePage(query.page);
     const limit = normalizeLimit(query.limit);
     const start = (page - 1) * limit;
-    const data = clips.slice(start, start + limit);
+    const data = clips.slice(start, start + limit).map((c) => this.clone(c));
 
     return { data, total, page, limit };
   }
 
   async getById(id: string): Promise<Clip | undefined> {
-    return this.clips.find((c) => c.id === id);
+    const found = this.clips.find((c) => c.id === id);
+    return found ? this.clone(found) : undefined;
   }
 
   async insert(clip: Clip): Promise<void> {
-    this.clips.push(clip);
+    this.clips.push(this.clone(clip));
   }
 
   async update(id: string, patch: Partial<Clip>): Promise<Clip | undefined> {
     const idx = this.clips.findIndex((c) => c.id === id);
     if (idx === -1) return undefined;
     this.clips[idx] = { ...this.clips[idx], ...patch };
-    return this.clips[idx];
+    return this.clone(this.clips[idx]);
   }
 
   async remove(id: string): Promise<boolean> {

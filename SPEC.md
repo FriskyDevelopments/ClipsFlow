@@ -111,9 +111,10 @@ served at **`GET /healthz`** → `200 {"status":"ok"}` (outside the base path).
 other handled errors → `{ "error": "…" }`; unexpected → `500
 { "error": "Internal server error" }`.
 
-**Rate limiting:** applied to `/api/v1`. Default `100` requests / `60s` per IP
-(`RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS`). Standard `RateLimit-*` headers;
-bypassed when `NODE_ENV=test`.
+**Rate limiting:** applied to `POST /api/v1/clips` (the unauthenticated write
+path), enforced by the `RateLimiter` Durable Object keyed per client IP.
+Default `100` requests / `60s` (`RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS`).
+Over the limit returns `429` `{ "error": "Too many requests" }`.
 
 ---
 

@@ -76,6 +76,8 @@ export async function runClipCommand(
         await clips.deleteClip(store, input.id as string);
         return { ok: true, message: `Deleted clip \`${input.id}\`` };
       }
+      default:
+        return { ok: false, message: `Unknown subcommand \`${input.subcommand}\`` };
     }
   } catch (err) {
     if (err instanceof ValidationError) {
