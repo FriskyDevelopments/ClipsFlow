@@ -1,0 +1,25 @@
+# Infisical Agent config — renders project secrets into the tmpfs at /dev/shm/secrets/.env
+# Auth uses Universal Auth; client id/secret come from the container environment
+# (INFISICAL_CLIENT_ID / INFISICAL_CLIENT_SECRET set in the compose env).
+infisical:
+  address: "https://app.infisical.com"
+
+auth:
+  type: "universal-auth"
+  config:
+    client-id: "env://INFISICAL_CLIENT_ID"
+    client-secret: "env://INFISICAL_CLIENT_SECRET"
+    remove_client_secret_on_read: false
+
+sinks:
+  - type: "file"
+    config:
+      path: "/dev/shm/secrets/.infisical-token"
+
+templates:
+  - source-path: "/infisical/env.tpl"
+    destination-path: "/dev/shm/secrets/.env"
+    config:
+      polling-interval: "60s"
+      execute:
+        command: ""   # nothing to run on refresh; the bot reads the file at boot
