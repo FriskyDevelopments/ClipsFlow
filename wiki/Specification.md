@@ -11,6 +11,6 @@ It covers:
 - **REST API** — every endpoint, status codes, and error envelopes
 - **Discord bot** — the `/clip` subcommand surface
 - **Configuration** — all environment variables
-- **Constraints & non-goals** — single-writer store, no auth, metadata-only
+- **Constraints & non-goals** — D1-backed store, no auth, metadata-only
 
 👉 **Read it here: [`SPEC.md`](../SPEC.md)**

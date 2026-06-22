@@ -1,35 +1,31 @@
 {
   "name": "clipsflow",
   "version": "0.1.0",
-  "description": "Video clip workflow management API",
+  "description": "Video clip workflow management API + Discord bot on Cloudflare Workers",
   "type": "module",
   "scripts": {
-    "dev": "node --loader ts-node/esm src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "bot": "node dist/discord/index.js",
-    "bot:dev": "node --loader ts-node/esm src/discord/index.ts",
-    "bot:register": "node dist/discord/register.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bot:register": "node --loader ts-node/esm src/discord/register.ts",
+    "db:create": "wrangler d1 create clipsflow",
+    "db:migrate": "wrangler d1 migrations apply clipsflow --remote",
+    "db:migrate:local": "wrangler d1 migrations apply clipsflow --local"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "discord.js": "^14.26.4",
-    "express": "^4.19.2",
-    "express-rate-limit": "^7.5.1",
-    "uuid": "^9.0.1"
+    "hono": "^4.6.3"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
+    "@cloudflare/workers-types": "^4.20240925.0",
     "@types/node": "^20.14.0",
-    "@types/supertest": "^6.0.3",
-    "@types/uuid": "^9.0.8",
-    "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5",
-    "vitest": "^1.6.0"
+    "vitest": "^1.6.0",
+    "wrangler": "^3.78.0"
   }
 }

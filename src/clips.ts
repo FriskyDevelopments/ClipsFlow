@@ -1,6 +1,5 @@
-import { v4 as uuidv4 } from "uuid";
-import * as store from "./store.js";
 import { validateCreateClip, validateUpdateClip } from "./validators.js";
+import { ClipStore } from "./store.js";
 import { Clip, ClipQuery, PaginatedClips } from "./types.js";
 
 export class ValidationError extends Error {
@@ -10,14 +9,14 @@ export class ValidationError extends Error {
   }
 }
 
-export function createClip(input: unknown): Clip {
+export async function createClip(store: ClipStore, input: unknown): Promise<Clip> {
   const result = validateCreateClip(input);
   if (!result.valid) throw new ValidationError(result.errors);
 
   const data = input as { title: string; filePath: string; durationSeconds: number; tags?: string[] };
   const now = new Date().toISOString();
   const clip: Clip = {
-    id: uuidv4(),
+    id: crypto.randomUUID(),
     title: data.title.trim(),
     filePath: data.filePath.trim(),
     durationSeconds: data.durationSeconds,
@@ -25,19 +24,19 @@ export function createClip(input: unknown): Clip {
     createdAt: now,
     updatedAt: now,
   };
-  store.insert(clip);
+  await store.insert(clip);
   return clip;
 }
 
-export function listClips(query: ClipQuery = {}): PaginatedClips {
+export function listClips(store: ClipStore, query: ClipQuery = {}): Promise<PaginatedClips> {
   return store.getAll(query);
 }
 
-export function getClip(id: string): Clip | undefined {
+export function getClip(store: ClipStore, id: string): Promise<Clip | undefined> {
   return store.getById(id);
 }
 
-export function updateClip(id: string, input: unknown): Clip {
+export async function updateClip(store: ClipStore, id: string, input: unknown): Promise<Clip> {
   const result = validateUpdateClip(input);
   if (!result.valid) throw new ValidationError(result.errors);
 
@@ -46,12 +45,12 @@ export function updateClip(id: string, input: unknown): Clip {
   if (data.title !== undefined) patch.title = data.title.trim();
   if (data.tags !== undefined) patch.tags = data.tags;
 
-  const updated = store.update(id, patch);
+  const updated = await store.update(id, patch);
   if (!updated) throw new Error(`Clip ${id} not found`);
   return updated;
 }
 
-export function deleteClip(id: string): void {
-  const deleted = store.remove(id);
+export async function deleteClip(store: ClipStore, id: string): Promise<void> {
+  const deleted = await store.remove(id);
   if (!deleted) throw new Error(`Clip ${id} not found`);
 }

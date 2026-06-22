@@ -1,0 +1,32 @@
+name = "clipsflow"
+main = "src/worker.ts"
+compatibility_date = "2024-09-23"
+# nodejs_compat is unused by the Worker bundle today but kept for headroom;
+# the runtime relies only on Web Crypto + standard Workers APIs.
+compatibility_flags = ["nodejs_compat"]
+
+# --- D1: system of record for clips ---------------------------------------
+# Create with:  wrangler d1 create clipsflow
+# then paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "clipsflow"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+# --- Durable Object: per-client rate limiter ------------------------------
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
+
+# --- Tunables (override per-env as needed) ---------------------------------
+[vars]
+RATE_LIMIT_WINDOW_MS = "60000"
+RATE_LIMIT_MAX = "100"
+
+# Secrets (set via `wrangler secret put`, NOT committed):
+#   DISCORD_PUBLIC_KEY   – Discord app public key, for interaction verification

@@ -4,7 +4,7 @@ Status: **v0.1.0** · Last updated for the go-live branch.
 
 ClipsFlow is a small service for managing **video clip metadata**. The same
 core logic is exposed over two transports — a **REST API** and a **Discord
-bot** — backed by a single JSON file store.
+bot** — and runs as a single **Cloudflare Worker** backed by **Cloudflare D1**.
 
 ---
 
@@ -12,24 +12,33 @@ bot** — backed by a single JSON file store.
 
 ```
                  ┌────────────────────┐
-HTTP  ───────►   │  Express routes     │ ┐
-                 │  (src/routes.ts)    │ │
+HTTP  ───────►   │  Hono API           │ ┐
+                 │  (src/api.ts)       │ │
                  └────────────────────┘ │
                  ┌────────────────────┐ │   ┌──────────────┐   ┌──────────────┐
-Discord ─────►   │  /clip command      │ ├─► │  clip core    │─► │  file store   │
-                 │  (src/discord/*)    │ │   │ (src/clips.ts)│   │ (src/store.ts)│
+Discord ─────►   │  HTTP interactions  │ ├─► │  clip core    │─► │  ClipStore    │
+(POST /…)        │  (discord/*.ts)     │ │   │ (src/clips.ts)│   │ Memory │ D1   │
                  └────────────────────┘ ┘   └──────────────┘   └──────────────┘
-                                              ▲
+                                              ▲                  (store.ts / d1.ts)
                                          validation
                                        (src/validators.ts)
 ```
 
-- **Transport is separate from logic.** Both the HTTP routes and the Discord
-  command handler call the same functions in `src/clips.ts`. No business rule
-  is duplicated across transports.
-- **Single query path.** Tag filtering + pagination live only in
-  `store.getAll()`; `clips.listClips()` delegates to it.
-- **Persistence** is a JSON file at `${CLIPS_DATA_DIR}/clips.json`.
+- **Single Worker, two transports.** `src/worker.ts` routes `/api/v1/*` to the
+  Hono API and `POST /interactions` to the Discord handler. Both call the same
+  functions in `src/clips.ts`. No business rule is duplicated across transports.
+- **Storage is an injected interface.** `ClipStore` (`src/store.ts`) has two
+  implementations: `MemoryStore` (tests, local) and `D1Store` (`src/d1.ts`,
+  production). The core is async so a single code path serves both.
+- **Single query path.** Tag filtering + pagination live behind
+  `store.getAll()`; `clips.listClips()` delegates to it. The D1 store filters
+  tags in SQL via `json_each`.
+- **Rate limiting** is a Durable Object (`src/ratelimiter.ts`), keyed per
+  client IP, applied to `POST /api/v1/clips`.
+- **Discord** uses HTTP Interactions: the Worker verifies the Ed25519 request
+  signature (Web Crypto) and replies inline — no gateway connection. The only
+  discord.js dependency is the offline slash-command registration script.
+- **Persistence** is the `clips` table in D1 (schema in `migrations/`).
 
 ---
 
@@ -133,32 +142,30 @@ One slash command, **`/clip`**, with subcommands mirroring the API:
 
 ## 7. Configuration
 
-| Variable | Default | Used by |
+| Setting | Where | Used by |
 |---|---|---|
-| `PORT` | `3000` | API |
-| `CLIPS_DATA_DIR` | `./data` | Store (both transports) |
-| `RATE_LIMIT_WINDOW_MS` | `60000` | API |
-| `RATE_LIMIT_MAX` | `100` | API |
-| `NODE_ENV` | — | `test` skips rate limit + port/bot boot |
-| `DISCORD_BOT_TOKEN` | — | Bot |
-| `DISCORD_CLIENT_ID` | — | Command registration |
-| `DISCORD_GUILD_ID` | — | Optional guild-scoped registration |
+| `DB` | `wrangler.toml` `[[d1_databases]]` | Store (both transports) |
+| `RATE_LIMITER` | `wrangler.toml` `[[durable_objects.bindings]]` | API rate limiting |
+| `RATE_LIMIT_WINDOW_MS` | `wrangler.toml` `[vars]` | API |
+| `RATE_LIMIT_MAX` | `wrangler.toml` `[vars]` | API |
+| `DISCORD_PUBLIC_KEY` | Worker secret | Interaction signature verification |
+| `DISCORD_BOT_TOKEN` | `.env` (registration script) | Slash-command registration |
+| `DISCORD_CLIENT_ID` | `.env` (registration script) | Slash-command registration |
+| `DISCORD_GUILD_ID` | `.env` (registration script) | Optional guild-scoped registration |
 
 ---
 
 ## 8. Constraints & non-goals (v0.1.0)
 
-- **Single-writer file store.** The JSON store is not safe across multiple
-  concurrent writers. The API is therefore pinned to `max-instances=1` on
-  Cloud Run, and the bot runs as a single always-on worker. If both share a
-  store they must share the **same** `CLIPS_DATA_DIR`.
+- **D1 consistency.** Clips persist in a single D1 database shared by both
+  transports; there is no file store and no single-instance cap. Tag filtering
+  relies on SQLite `json_each` over the `tags` JSON column.
 - **No auth** on the API beyond rate limiting; **no per-user authorization**
   in the bot. Anyone who can reach the transport can mutate clips.
 - **No clip content handling** — ClipsFlow stores *metadata* only; it does not
   upload, transcode, or stream media.
 
 ### Planned next (post-v0.1.0)
-- Swap the file store for Postgres (the team already runs Supabase) to lift
-  the single-instance cap.
 - AuthN/Z on both transports.
+- A normalized `clip_tags` table (vs. JSON column) if tag queries grow.
 - OpenAPI document generated from the route + spec contract.

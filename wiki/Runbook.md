@@ -7,61 +7,59 @@ Operational quick-reference. Full detail and prerequisites are in
 
 | Service | Where | Notes |
 |---|---|---|
-| `clipsflow-api` | Cloud Run (`us-central1`) | Request-driven, scales to zero, `max-instances=1` |
-| ClipsFlow bot | Always-on worker | Persistent gateway connection; **not** Cloud Run |
-| `clipsflow-bot` | Cloud Run | The sibling **Python** bot — unrelated, do not redeploy with this image |
+| ClipsFlow Worker | Cloudflare Workers | Serves the REST API **and** the Discord bot (HTTP interactions) |
+| `DB` (D1) | Cloudflare D1 | System of record for clips |
+| `RATE_LIMITER` | Durable Object | Per-IP rate limit on `POST /api/v1/clips` |
+| ClipFLOW bot | (separate repo) | The sibling **Python** Telegram bot — unrelated |
 
-## Deploy the API
+## Deploy
 
 ```bash
-./deploy.sh                 # build + deploy + prune old revisions
-./deploy.sh --no-prune      # build + deploy only
-gcloud builds submit --config cloudbuild.yaml .   # via Cloud Build
+npm run db:migrate          # apply migrations to the remote D1
+npm run deploy              # wrangler deploy
 ```
 
 Verify:
 
 ```bash
-URL=$(gcloud run services describe clipsflow-api --region us-central1 --format='value(status.url)')
-curl -s "$URL/healthz"      # {"status":"ok"}
+curl -s https://<your-worker-url>/healthz      # {"status":"ok"}
 ```
 
-## Retire old revisions
+## Secrets & config
 
 ```bash
-./deploy.sh --prune-only    # delete non-serving revisions of clipsflow-api
-gcloud run revisions list --service clipsflow-api --region us-central1
+npx wrangler secret put DISCORD_PUBLIC_KEY     # interaction signature verify
+# Rate-limit tunables live in wrangler.toml [vars]: RATE_LIMIT_WINDOW_MS / _MAX
 ```
 
-To prune the **Python** bot's stale revisions safely (dry-run by default,
-keeps the serving one), use the ClipFLOW repo script:
+## Roll back
+
+Wrangler keeps prior versions; roll back with:
 
 ```bash
-scripts/prune-cloud-run-revisions.sh            # dry run
-scripts/prune-cloud-run-revisions.sh --apply    # delete
+npx wrangler deployments list
+npx wrangler rollback [<version-id>]
 ```
 
-## Roll back the API
+## Discord command surface
+
+After changing the `/clip` subcommands, re-register (offline, uses `.env`):
 
 ```bash
-gcloud run revisions list --service clipsflow-api --region us-central1
-gcloud run services update-traffic clipsflow-api --region us-central1 \
-  --to-revisions <GOOD_REVISION>=100
+DISCORD_BOT_TOKEN=... DISCORD_CLIENT_ID=... npm run bot:register
 ```
 
-## Deploy / restart the Discord bot
-
-Runs as an always-on worker (Compute Engine `create-with-container` shown in
-[`DEPLOY.md`](../DEPLOY.md)). After a command-surface change, re-run
-`npm run bot:register`. If the bot and API are on different hosts, both must
-point at the **same** `CLIPS_DATA_DIR`.
+If interactions stop arriving, re-check the **Interactions Endpoint URL** in
+the Developer Portal points at `https://<your-worker-url>/interactions` and
+that `DISCORD_PUBLIC_KEY` matches the app.
 
 ## Incident checklist
 
-1. **API down?** Check `/healthz`, then Cloud Run logs and the serving
-   revision; roll back if a bad revision is live.
-2. **Bot offline?** Check the worker is running and `DISCORD_BOT_TOKEN` is
-   valid; the gateway reconnects automatically once the process is up.
-3. **Clips missing / inconsistent?** Confirm both transports share one
-   `CLIPS_DATA_DIR` and that the data volume is mounted (else the file store
-   is ephemeral).
+1. **API errors?** Check `/healthz`, then `npx wrangler tail` for live logs;
+   roll back if a bad version is live.
+2. **Bot not responding?** Verify the Interactions Endpoint URL is set and the
+   PING was accepted, `DISCORD_PUBLIC_KEY` is correct, and the command is
+   registered. A 401 from `/interactions` means a signature/key mismatch.
+3. **Clips missing / errors on write?** Confirm migrations were applied
+   (`npm run db:migrate`) and the `DB` binding `database_id` in `wrangler.toml`
+   is correct; inspect with `npx wrangler d1 execute clipsflow --command "SELECT COUNT(*) FROM clips"`.
