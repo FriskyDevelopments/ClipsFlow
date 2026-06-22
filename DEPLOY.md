@@ -1,161 +1,104 @@
 # Deploying ClipsFlow
 
-The ClipsFlow API runs as a container on **Google Cloud Run** in
-`us-central1`, mirroring the conventions of the sibling ClipFLOW bot.
+ClipsFlow runs as a single **Cloudflare Worker** that serves both the clip
+REST API and the Discord bot (via HTTP Interactions). State lives in
+**Cloudflare D1** (SQLite); request rate limiting uses a **Durable Object**.
 
-> **Naming:** this service is **`clipsflow-api`** — deliberately distinct
-> from the Python bot's **`clipsflow-bot`** Cloud Run service. They share
-> the `clipsflow` Artifact Registry repo but are separate services. Never
-> deploy this image over `clipsflow-bot`.
-
-## Architecture constraints (read first)
-
-- ClipsFlow persists clips to a **JSON file** (`CLIPS_DATA_DIR/clips.json`).
-  This is **not safe across multiple instances**, so the service is pinned
-  to **`--max-instances=1`**.
-- Durability is provided by a **GCS-backed Cloud Run volume** mounted at
-  `/app/data` (bucket `${PROJECT_ID}-clipsflow-data`). Without it, the file
-  store is ephemeral and clips are lost on every redeploy.
-- `--min-instances=0`: this is a request-driven API and scales to zero when
-  idle (unlike the bot, which needs a warm instance for Telegram polling).
-
-If/when ClipsFlow outgrows the file store, swap `store.ts` for Postgres
-(the team already runs Supabase) and the single-instance cap can be lifted.
+> **Why Workers (not Cloud Run):** the bot is now driven by Discord's
+> **HTTP Interactions** model — Discord POSTs each `/clip` invocation to the
+> Worker, which verifies the Ed25519 signature and replies inline. There is no
+> always-on gateway process and no local file store to mount, so the service
+> deploys to the edge with no container or volume.
 
 ## Prerequisites
 
-- `gcloud` CLI authenticated: `gcloud auth login`
-- A target project: `gcloud config set project <PROJECT_ID>`
-  (the team's prod project is `gen-lang-client-0202582192`)
-- APIs enabled: `run.googleapis.com`, `cloudbuild.googleapis.com`,
-  `artifactregistry.googleapis.com`, `storage.googleapis.com`
-- Artifact Registry repo `clipsflow` in `us-central1` (already exists for
-  the bot; create with:
-  `gcloud artifacts repositories create clipsflow --repository-format=docker --location=us-central1`)
+- A Cloudflare account and `wrangler` authenticated: `npx wrangler login`
+- Node.js >= 20
+- A Discord application (Developer Portal) with its **Public Key**,
+  **Application ID**, and a **Bot token**
 
-## Deploy
-
-One command — builds the image, ensures the data bucket exists, deploys,
-and prunes old revisions:
+## 1. Create the D1 database
 
 ```bash
-./deploy.sh
+npm run db:create          # wrangler d1 create clipsflow
 ```
 
-Override defaults via env vars:
+Copy the printed `database_id` into `wrangler.toml` under
+`[[d1_databases]]` (replace `REPLACE_WITH_D1_DATABASE_ID`).
+
+Apply the schema:
 
 ```bash
-GCP_PROJECT_ID=gen-lang-client-0202582192 \
-GCP_REGION=us-central1 \
-GCP_SERVICE_NAME=clipsflow-api \
-./deploy.sh
+npm run db:migrate:local   # local dev DB
+npm run db:migrate         # remote (production) DB
 ```
 
-Or via Cloud Build (e.g. wired to a trigger on the go-live branch):
+## 2. Configure secrets and vars
 
 ```bash
-gcloud builds submit --config cloudbuild.yaml .
+# Discord public key — used to verify interaction request signatures.
+npx wrangler secret put DISCORD_PUBLIC_KEY
 ```
 
-### Continuous deploy (Cloud Build trigger)
+Rate-limit tunables live in `wrangler.toml` `[vars]`
+(`RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`) — override per environment as
+needed.
 
-To auto-deploy on every push, create the trigger **once** (needs the GitHub
-repo connected to Cloud Build in the GCP console, or via
-`gcloud builds connections`):
+## 3. Register the slash command (one-time / on change)
+
+Run locally against the Discord REST API (uses `.env`, see `.env.example`):
 
 ```bash
-gcloud builds triggers create github \
-  --name=clipsflow-api-deploy \
-  --repo-name=ClipsFlow \
-  --repo-owner=FriskyDevelopments \
-  --branch-pattern='^claude/clipsflow-go-live-1j0klh$' \
-  --build-config=cloudbuild.yaml \
-  --region=us-central1
+DISCORD_BOT_TOKEN=... DISCORD_CLIENT_ID=... npm run bot:register
 ```
 
-Once merged to your production branch, repoint `--branch-pattern` (e.g.
-`^main$`). Grant the Cloud Build service account the `run.admin`,
-`storage.admin`, and `iam.serviceAccountUser` roles so the build step can
-deploy and manage the data bucket. After that, `git push` is the deploy.
+Set `DISCORD_GUILD_ID` for instant, guild-scoped registration in dev; omit
+it to register globally (can take up to ~1h to propagate).
 
-After a deploy, verify:
+## 4. Deploy the Worker
 
 ```bash
-URL=$(gcloud run services describe clipsflow-api --region us-central1 --format='value(status.url)')
-curl -s "$URL/healthz"     # -> {"status":"ok"}
+npm run deploy             # wrangler deploy
 ```
 
-## Retiring old instances / revisions
+Wrangler prints the Worker URL, e.g. `https://clipsflow.<subdomain>.workers.dev`.
 
-Cloud Run automatically shifts 100% of traffic to the new revision, so old
-revisions stop receiving requests immediately. `./deploy.sh` then **deletes**
-every revision that is no longer serving traffic. To prune without
-redeploying:
+## 5. Point Discord at the Worker
+
+In the Developer Portal → your app → **General Information**, set the
+**Interactions Endpoint URL** to:
+
+```
+https://clipsflow.<subdomain>.workers.dev/interactions
+```
+
+Discord immediately sends a `PING`; the Worker answers with `PONG`, so the
+URL is accepted only once the deploy is live and `DISCORD_PUBLIC_KEY` is set.
+
+## Endpoints
+
+| Path | Purpose |
+|---|---|
+| `GET /healthz` | Liveness probe |
+| `/api/v1/clips…` | Clip CRUD REST API |
+| `POST /interactions` | Discord HTTP interactions (signature-verified) |
+
+## Local development
 
 ```bash
-./deploy.sh --prune-only
+npm run dev                # wrangler dev — local Worker + local D1 + DO
 ```
 
-To inspect what would be removed first:
+`wrangler dev` runs the Worker on Cloudflare's local runtime (`workerd`)
+with a local D1 instance. Apply migrations to it with
+`npm run db:migrate:local` first.
 
-```bash
-gcloud run revisions list --service clipsflow-api --region us-central1
-```
+## Operational notes
 
-### Other "old instances" to be aware of (NOT touched by this script)
-
-These belong to other products in the same project. Decommission them
-**deliberately**, only after confirming they're truly retired — `deploy.sh`
-never touches them:
-
-| Resource | Type | Notes |
-|---|---|---|
-| `clipsflow-bot` | Cloud Run service | The **live Python bot** — do not delete. To prune only its *stale revisions* (keeps the serving one), use `scripts/prune-cloud-run-revisions.sh` in the ClipFLOW repo. |
-| `clipflow-worker-prod` | Compute Engine VM | Created by `ClipFLOW/deploy-prod-gcp.sh`. |
-| `ghost-api-prod` | Cloud Run service | Unrelated Ghost API. |
-
-Manual teardown commands (run only against a confirmed-stale target):
-
-```bash
-# A stale Cloud Run service
-gcloud run services delete <SERVICE> --region us-central1
-
-# A stale Compute Engine VM
-gcloud compute instances delete <NAME> --zone us-central1-a
-```
-
-## Deploying the Discord bot
-
-The bot holds a **persistent gateway (WebSocket) connection** and has no
-inbound HTTP, so it does **not** fit Cloud Run's request-driven, scale-to-zero
-model — a Cloud Run service would idle the container and drop the connection.
-Run it as an **always-on worker** instead, mirroring the sibling
-`clipflow-worker-prod` Compute Engine pattern:
-
-```bash
-# Build/push the same image, then run it with the bot entrypoint on an
-# always-on container host (Compute Engine shown; any always-on runtime works).
-gcloud compute instances create-with-container clipsflow-bot-worker \
-  --zone=us-central1-a \
-  --machine-type=e2-micro \
-  --container-image=us-central1-docker.pkg.dev/$PROJECT_ID/clipsflow/clipsflow-api:latest \
-  --container-command=node \
-  --container-arg=dist/discord/index.js \
-  --container-env=NODE_ENV=production,CLIPS_DATA_DIR=/app/data \
-  --container-env=DISCORD_BOT_TOKEN=...,DISCORD_CLIENT_ID=...
-```
-
-Prefer Secret Manager over `--container-env` for the token in production.
-Register the slash command once (`npm run bot:register`, or a one-shot run of
-the image with `--container-arg=dist/discord/register.js`) before/after first
-boot. If the bot and API run on different hosts, point both at the **same**
-shared store (e.g. the GCS-backed volume) so they see the same clips.
-
-## Rollback
-
-```bash
-# List revisions, then route traffic back to a known-good one
-gcloud run revisions list --service clipsflow-api --region us-central1
-gcloud run services update-traffic clipsflow-api --region us-central1 \
-  --to-revisions <GOOD_REVISION>=100
-```
+- **D1 is the system of record.** Clips survive redeploys; no volume to
+  mount, no single-instance cap (unlike the old Cloud Run + file-store path).
+- **Rate limiting** is per-client-IP via the `RateLimiter` Durable Object,
+  applied to `POST /api/v1/clips`. It replaces `express-rate-limit`, whose
+  in-process counter cannot work across Worker isolates.
+- **Naming:** this is the ClipsFlow clip service — distinct from the sibling
+  Python Telegram bot. They do not share infrastructure.

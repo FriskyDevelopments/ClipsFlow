@@ -1,45 +1,48 @@
 # ClipsFlow
 
-A small REST API for managing video clip metadata, built with Express + TypeScript. Clips are persisted to a JSON file store, so it runs with zero external dependencies.
+A small service for managing video clip metadata, running on **Cloudflare Workers** (Hono + TypeScript). It exposes a **REST API** and a **Discord bot** that share one clip core, persisted to **Cloudflare D1** (SQLite). Request rate limiting uses a **Durable Object**; the Discord bot is driven by Discord's **HTTP Interactions**, so there is no always-on gateway process.
+
+**Docs:** [SPEC.md](./SPEC.md) (full contract) · [DEPLOY.md](./DEPLOY.md) (deploy) · [wiki/](./wiki/Home.md) (guides & runbook)
 
 ## Requirements
 
 - Node.js >= 20
+- A Cloudflare account + `wrangler` (`npx wrangler login`)
 
 ## Getting started
 
 ```bash
 npm ci
-cp .env.example .env   # optional — sensible defaults are built in
-npm run dev            # http://localhost:3000/api/v1
+npm run db:create        # one-time: create the D1 database, paste the id into wrangler.toml
+npm run db:migrate:local # apply schema to the local D1
+npm run dev              # wrangler dev → http://localhost:8787
 ```
 
 ### Scripts
 
 | Script | Description |
 |---|---|
-| `npm run dev` | Run the API with ts-node (no build step) |
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm start` | Run the compiled API server (`dist/index.js`) |
-| `npm run bot` | Run the compiled Discord bot (`dist/discord/index.js`) |
-| `npm run bot:dev` | Run the Discord bot with ts-node |
+| `npm run dev` | Run the Worker locally on `workerd` (`wrangler dev`) |
+| `npm run deploy` | Deploy the Worker (`wrangler deploy`) |
+| `npm run db:create` | Create the `clipsflow` D1 database |
+| `npm run db:migrate` | Apply migrations to the **remote** D1 |
+| `npm run db:migrate:local` | Apply migrations to the **local** D1 |
 | `npm run bot:register` | Register the `/clip` slash command with Discord |
 | `npm run typecheck` | Type-check without emitting |
 | `npm test` | Run the Vitest suite |
 
 ## Configuration
 
-All configuration is via environment variables (see `.env.example`):
+Runtime config lives in `wrangler.toml` and Worker secrets — not a `.env`
+(the `.env` is only for the local registration script; see `.env.example`).
 
-| Variable | Default | Notes |
+| Setting | Where | Notes |
 |---|---|---|
-| `PORT` | `3000` | Port the server listens on |
-| `CLIPS_DATA_DIR` | `./data` | Directory for the JSON store; mount a volume in production |
-| `RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window in ms |
-| `RATE_LIMIT_MAX` | `100` | Max requests per window per IP on `/api/v1` |
-| `DISCORD_BOT_TOKEN` | — | Bot token; required to run the Discord bot |
-| `DISCORD_CLIENT_ID` | — | Application ID; required to register slash commands |
-| `DISCORD_GUILD_ID` | — | Optional; register commands to one guild (instant) |
+| `DB` | `wrangler.toml` `[[d1_databases]]` | D1 binding (paste `database_id`) |
+| `RATE_LIMITER` | `wrangler.toml` `[[durable_objects.bindings]]` | Rate-limiter DO |
+| `RATE_LIMIT_WINDOW_MS` | `wrangler.toml` `[vars]` | Rate-limit window in ms (default `60000`) |
+| `RATE_LIMIT_MAX` | `wrangler.toml` `[vars]` | Max requests/window per IP on `POST /api/v1/clips` |
+| `DISCORD_PUBLIC_KEY` | `wrangler secret put` | Verifies Discord interaction signatures |
 
 ## API
 
@@ -96,8 +99,10 @@ Delete a clip. Returns `204`, or `404` if not found.
 ## Discord bot
 
 ClipsFlow ships a Discord bot as a second transport over the **same** clip
-core and file store as the REST API. It exposes a single `/clip` slash
-command with subcommands mirroring the API:
+core and D1 store as the REST API. Discord delivers each command to the
+Worker via **HTTP Interactions** (`POST /interactions`), which the Worker
+verifies (Ed25519) and answers inline — there is no gateway connection. It
+exposes a single `/clip` slash command with subcommands mirroring the API:
 
 | Command | Action |
 |---|---|
@@ -108,40 +113,39 @@ command with subcommands mirroring the API:
 | `/clip delete id:<…>` | Delete a clip |
 
 Validation errors reply privately (ephemeral) to the invoker; successes post
-to the channel. Only the non-privileged `Guilds` gateway intent is used.
+to the channel.
 
-### Running the bot
+### Wiring the bot
 
 1. Create an application + bot at the [Discord Developer Portal](https://discord.com/developers/applications)
-   and copy the **bot token** and **application (client) ID**.
-2. Set `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID` (and optionally
-   `DISCORD_GUILD_ID` for instant dev registration).
-3. Register the slash command, then start the bot:
+   and copy the **Public Key**, **Application (client) ID**, and **bot token**.
+2. Register the slash command (one-time, or whenever the command surface changes):
+   ```bash
+   DISCORD_BOT_TOKEN=... DISCORD_CLIENT_ID=... npm run bot:register
+   ```
+3. Set the Worker secret and deploy:
+   ```bash
+   npx wrangler secret put DISCORD_PUBLIC_KEY
+   npm run deploy
+   ```
+4. In the Developer Portal, set the **Interactions Endpoint URL** to
+   `https://<your-worker-url>/interactions`.
 
-```bash
-npm run build
-npm run bot:register   # one-time, or whenever the command surface changes
-npm run bot
-```
-
-Invite the bot with the `applications.commands` scope (and `bot` scope).
-The API and bot are separate processes that share `CLIPS_DATA_DIR`.
+See [DEPLOY.md](./DEPLOY.md) for the full walkthrough.
 
 ## Deployment
 
-A multi-stage `Dockerfile` is provided:
-
 ```bash
-docker build -t clipsflow .
-docker run -p 3000:3000 -v clipsflow-data:/app/data clipsflow
+npm run db:migrate   # apply schema to remote D1
+npm run deploy       # wrangler deploy
 ```
 
-The container runs as a non-root user and persists clips to the `/app/data` volume.
-
-For the production path on Google Cloud Run — one-command `./deploy.sh`,
-the `cloudbuild.yaml` pipeline, durable storage, and retiring old
-revisions/instances — see **[DEPLOY.md](./DEPLOY.md)**.
+See **[DEPLOY.md](./DEPLOY.md)** for D1 setup, secrets, and pointing Discord
+at the Worker.
 
 ## Testing & CI
 
-`npm test` runs validator, store, and HTTP route tests (via Supertest) against an isolated temp data directory. GitHub Actions (`.github/workflows/ci.yml`) typechecks, builds, and tests on every push and pull request.
+`npm test` runs validator, store, HTTP route (via Hono `app.request`), and
+Discord command tests against an in-memory store. GitHub Actions
+(`.github/workflows/ci.yml`) typechecks, tests, and dry-run-bundles the
+Worker on every push and pull request.

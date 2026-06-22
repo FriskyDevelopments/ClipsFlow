@@ -1,51 +1,7 @@
-import { SlashCommandBuilder } from "discord.js";
 import * as clips from "../clips.js";
 import { ValidationError } from "../clips.js";
+import { ClipStore } from "../store.js";
 import { Clip, PaginatedClips } from "../types.js";
-
-// Slash command surface: a single `/clip` command with subcommands that
-// mirror the REST API (add / list / get / update / delete).
-export const clipCommand = new SlashCommandBuilder()
-  .setName("clip")
-  .setDescription("Manage video clips")
-  .addSubcommand((s) =>
-    s
-      .setName("add")
-      .setDescription("Create a new clip")
-      .addStringOption((o) => o.setName("title").setDescription("Clip title").setRequired(true))
-      .addStringOption((o) => o.setName("file_path").setDescription("Path to the clip file").setRequired(true))
-      .addIntegerOption((o) =>
-        o.setName("duration").setDescription("Duration in seconds (1–3600)").setRequired(true),
-      )
-      .addStringOption((o) => o.setName("tags").setDescription("Comma-separated tags").setRequired(false)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("list")
-      .setDescription("List clips")
-      .addStringOption((o) => o.setName("tag").setDescription("Filter by tag").setRequired(false))
-      .addIntegerOption((o) => o.setName("page").setDescription("Page number (default 1)").setRequired(false)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("get")
-      .setDescription("Show one clip")
-      .addStringOption((o) => o.setName("id").setDescription("Clip id").setRequired(true)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("update")
-      .setDescription("Update a clip's title and/or tags")
-      .addStringOption((o) => o.setName("id").setDescription("Clip id").setRequired(true))
-      .addStringOption((o) => o.setName("title").setDescription("New title").setRequired(false))
-      .addStringOption((o) => o.setName("tags").setDescription("New comma-separated tags").setRequired(false)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("delete")
-      .setDescription("Delete a clip")
-      .addStringOption((o) => o.setName("id").setDescription("Clip id").setRequired(true)),
-  );
 
 export interface CommandInput {
   subcommand: "add" | "list" | "get" | "update" | "delete";
@@ -78,13 +34,21 @@ export function parseTags(raw: string | null | undefined): string[] | undefined 
 /**
  * Pure command handler: maps a normalized input to the shared clip core and
  * returns a transport-neutral result. Kept free of discord.js types so it can
- * be unit-tested without a gateway connection.
+ * be unit-tested and bundled into the Worker without a gateway connection.
  */
-export function runClipCommand(input: CommandInput): CommandResult {
+export async function runClipCommand(
+  store: ClipStore,
+  input: CommandInput,
+): Promise<CommandResult> {
   try {
+    // get/update/delete require an id; guard so we never assert undefined
+    // through to the store (e.g. if reused outside Discord's required-param check).
+    if (["get", "update", "delete"].includes(input.subcommand) && !input.id) {
+      return { ok: false, message: "Missing clip id" };
+    }
     switch (input.subcommand) {
       case "add": {
-        const clip = clips.createClip({
+        const clip = await clips.createClip(store, {
           title: input.title,
           filePath: input.filePath,
           durationSeconds: input.durationSeconds,
@@ -93,7 +57,7 @@ export function runClipCommand(input: CommandInput): CommandResult {
         return { ok: true, message: `Created clip \`${clip.id}\``, clip };
       }
       case "list": {
-        const result = clips.listClips({ tag: input.tag, page: input.page });
+        const result = await clips.listClips(store, { tag: input.tag, page: input.page });
         const scope = input.tag ? ` tagged \`${input.tag}\`` : "";
         return {
           ok: true,
@@ -102,21 +66,23 @@ export function runClipCommand(input: CommandInput): CommandResult {
         };
       }
       case "get": {
-        const clip = clips.getClip(input.id as string);
+        const clip = await clips.getClip(store, input.id as string);
         if (!clip) return { ok: false, message: `Clip \`${input.id}\` not found` };
         return { ok: true, message: clip.title, clip };
       }
       case "update": {
-        const clip = clips.updateClip(input.id as string, {
+        const clip = await clips.updateClip(store, input.id as string, {
           title: input.title,
           tags: input.tags,
         });
         return { ok: true, message: `Updated clip \`${clip.id}\``, clip };
       }
       case "delete": {
-        clips.deleteClip(input.id as string);
+        await clips.deleteClip(store, input.id as string);
         return { ok: true, message: `Deleted clip \`${input.id}\`` };
       }
+      default:
+        return { ok: false, message: `Unknown subcommand \`${input.subcommand}\`` };
     }
   } catch (err) {
     if (err instanceof ValidationError) {

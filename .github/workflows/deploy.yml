@@ -1,0 +1,81 @@
+name: Deploy Worker
+
+# Deploys the ClipsFlow Worker to Cloudflare. Runs only when the Cloudflare
+# credentials are configured as repo secrets, so it stays inert until then.
+#
+# Required repo secrets:
+#   CLOUDFLARE_API_TOKEN   – token with Workers + D1 edit permissions
+#   CLOUDFLARE_ACCOUNT_ID  – target Cloudflare account id
+# Prerequisite: wrangler.toml has a real D1 database_id (see DEPLOY.md).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/clipsflow-go-live-1j0klh"]
+    paths:
+      - "src/**"
+      - "migrations/**"
+      - "wrangler.toml"
+      - "package.json"
+      - ".github/workflows/deploy.yml"
+
+# Minimal token scope; this workflow only reads the repo and talks to Cloudflare.
+permissions:
+  contents: read
+
+# Serialize deploys so D1 migrations and `wrangler deploy` never race.
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  # The `secrets` context is not available in a job-level `if`, so gate on the
+  # presence of the token via a tiny check job whose output the deploy needs.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # wrangler.toml carries no account_id, so the deploy needs both the
+          # token and the account id; gate on both to skip cleanly otherwise.
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: check
+    if: needs.check.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply clipsflow --remote
+
+      - name: Deploy
+        run: npx wrangler deploy

@@ -1,5 +1,5 @@
 import { REST, Routes } from "discord.js";
-import { clipCommand } from "./commands.js";
+import { clipCommand } from "./schema.js";
 
 // Registers the /clip slash command with Discord.
 //   - Set DISCORD_GUILD_ID for instant, guild-scoped registration (dev).
