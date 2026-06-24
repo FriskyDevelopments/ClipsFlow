@@ -1,5 +1,5 @@
 {{- with secret "<WORKSPACE_ID>" "prod" "/" }}
 {{- range . }}
-{{ .Key }}={{ .Value }}
+{{ .Key }}='{{ .Value }}'
 {{- end }}
 {{- end }}

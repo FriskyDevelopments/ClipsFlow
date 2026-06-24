@@ -32,5 +32,8 @@ docker compose -f docker-compose.clipsflow.yml logs -f infisical-agent  # confir
   Droplet. Tune to your host.
 - `FFMPEG_TEMP_DIR=/var/cache/clipsflow` keeps scratch files on the bind-mounted SSD,
   not in the small tmpfs.
-- The entrypoint `export $(cat .env | xargs)` word-splits on whitespace — keep secret
-  values free of spaces/quotes, or swap to a `set -a; . .env; set +a` loader.
+- The entrypoint waits for the Infisical agent to render the secrets file, then loads
+  it with `set -a; . /dev/shm/secrets/.env; set +a`. Values are single-quoted in
+  `env.tpl`, so secrets with spaces or special characters load correctly.
+- Image tags default to `:latest` but are overridable for reproducible deploys — set
+  `CLIPSFLOW_IMAGE` / `INFISICAL_AGENT_IMAGE` to a pinned version in production.
