@@ -12,6 +12,36 @@ Operational quick-reference. Full detail and prerequisites are in
 | `RATE_LIMITER` | Durable Object | Per-IP rate limit on `POST /api/v1/clips` |
 | ClipFLOW bot | (separate repo) | The sibling **Python** Telegram bot — unrelated |
 
+## Restart / redeploy
+
+**There is no process to restart.** ClipsFlow is a stateless **Cloudflare
+Worker**, not a long-running daemon on a VM — there is no droplet, no `pm2`,
+and no Docker container. The Worker is always live at Cloudflare's edge; state
+lives in **D1** and the **Durable Object**, both of which survive a redeploy.
+The equivalent of a "restart" is **deploying a fresh version** (or rolling back
+to a known-good one).
+
+| If your notes say… | Do this instead |
+|---|---|
+| `ssh root@<droplet>` | Nothing — there is no droplet. The Worker runs on Cloudflare. |
+| `pm2 restart clipsflow` | `npm run deploy` (redeploy) **or** `npx wrangler rollback` (revert to prior version) |
+| `docker restart <container>` | Same as above — `npm run deploy` / `wrangler rollback` |
+| `pm2 logs` / `docker logs` | `npx wrangler tail` (live Worker logs) |
+
+```bash
+npm run deploy                                 # push a fresh Worker version
+curl -s https://<your-worker-url>/healthz      # confirm: {"status":"ok"}
+```
+
+If the goal is to revert a bad version rather than ship a new one, use the
+**Roll back** steps below instead of redeploying.
+
+> **Orphaned droplet?** If a pre-migration ClipsFlow is *still* running on a
+> droplet (`pm2`/Docker) from before the move to Workers, it is now stale and
+> can double-process Discord interactions or run up cost. Once the Worker is
+> confirmed serving (`/healthz` + a working `/clip`), decommission it:
+> `pm2 delete clipsflow` (and `pm2 save`) or `docker rm -f <container>`.
+
 ## Deploy
 
 ```bash
