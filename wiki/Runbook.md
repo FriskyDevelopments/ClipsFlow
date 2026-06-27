@@ -24,8 +24,8 @@ to a known-good one).
 | If your notes say… | Do this instead |
 |---|---|
 | `ssh root@<droplet>` | Nothing — there is no droplet. The Worker runs on Cloudflare. |
-| `pm2 restart clipsflow` | `npm run deploy` (redeploy) **or** `npx wrangler rollback` (revert to prior version) |
-| `docker restart <container>` | Same as above — `npm run deploy` / `wrangler rollback` |
+| `pm2 restart clipsflow` | `npm run deploy` (redeploy) **or** roll back to a prior version (see [Roll back](#roll-back)) |
+| `docker restart <container>` | Same as above — `npm run deploy`, or roll back (see [Roll back](#roll-back)) |
 | `pm2 logs` / `docker logs` | `npx wrangler tail` (live Worker logs) |
 
 ```bash
