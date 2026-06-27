@@ -39,7 +39,8 @@ If the goal is to revert a bad version rather than ship a new one, use the
 > **Orphaned droplet?** If a pre-migration ClipsFlow is *still* running on a
 > droplet (`pm2`/Docker) from before the move to Workers, it is now stale and
 > can double-process Discord interactions or run up cost. Once the Worker is
-> confirmed serving (`/healthz` + a working `/clip`), decommission it:
+> confirmed serving (`/healthz` + a working `/clip` Discord slash command),
+> decommission it:
 > `pm2 delete clipsflow` (and `pm2 save`) or `docker rm -f <container>`.
 
 ## Deploy
