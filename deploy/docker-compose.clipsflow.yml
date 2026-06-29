@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # Infisical Agent sidecar to inject secrets securely into memory
+  infisical-agent:
+    # Override to pin a specific version in production, e.g. INFISICAL_AGENT_IMAGE=infisical/agent:v0.x.y
+    image: ${INFISICAL_AGENT_IMAGE:-infisical/agent:latest}
+    container_name: clipsflow-infisical-agent
+    restart: unless-stopped
+    environment:
+      - INFISICAL_METHOD=universal-auth
+      - INFISICAL_CLIENT_ID=${INFISICAL_CLIENT_ID}
+      - INFISICAL_CLIENT_SECRET=${INFISICAL_CLIENT_SECRET}
+    # Render secrets to /dev/shm/secrets/.env using the agent config + template below.
+    command: ["agent", "--config", "/infisical/agent-config.yaml"]
+    volumes:
+      - ./infisical/agent-config.yaml:/infisical/agent-config.yaml:ro
+      - ./infisical/env.tpl:/infisical/env.tpl:ro
+      # Mount memory-backed volume (tmpfs) to /dev/shm for secure secret injection
+      - secrets-vault:/dev/shm/secrets:rw
+
+  clipsflow-bot:
+    # Override to pin a specific release/SHA in production, e.g. CLIPSFLOW_IMAGE=ghcr.io/friskydevelopments/clipsflow-bot:v1.2.3
+    image: ${CLIPSFLOW_IMAGE:-ghcr.io/friskydevelopments/clipsflow-bot:latest}
+    container_name: clipsflow-bot
+    restart: unless-stopped
+    depends_on:
+      - infisical-agent
+    environment:
+      # Direct FFmpeg to use a cache directory on the fast local SSD
+      - FFMPEG_TEMP_DIR=/var/cache/clipsflow
+    volumes:
+      - secrets-vault:/dev/shm/secrets:ro
+      # Fast local SSD directory for video transcoding and download cache
+      - /mnt/data/clipsflow_cache:/var/cache/clipsflow:rw
+    # Wait for the Infisical agent to render the secrets file (depends_on only waits
+    # for the container to start, not for the render), then source it safely so values
+    # with spaces/quotes/special chars are loaded correctly.
+    entrypoint: ["/bin/sh", "-c", "while [ ! -s /dev/shm/secrets/.env ]; do sleep 1; done; set -a; . /dev/shm/secrets/.env; set +a; exec python main.py"]
+    deploy:
+      resources:
+        limits:
+          # Bound to 8 GB RAM limit to prevent leaks from crashing the Droplet
+          memory: 8192M
+
+volumes:
+  secrets-vault:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=10M,mode=0700"
