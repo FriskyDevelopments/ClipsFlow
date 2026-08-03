@@ -27,6 +27,9 @@ new_sqlite_classes = ["RateLimiter"]
 [vars]
 RATE_LIMIT_WINDOW_MS = "60000"
 RATE_LIMIT_MAX = "100"
+ENVIRONMENT = "production"
+# Set RELEASE to the deployed git SHA or release identifier in CI.
+RELEASE = "development"
 
 # Secrets (set via `wrangler secret put`, NOT committed):
 #   DISCORD_PUBLIC_KEY   – Discord app public key, for interaction verification
