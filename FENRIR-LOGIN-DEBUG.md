@@ -4,8 +4,14 @@ Investigation of why login on **myfenrir.com** (Fenrir Bridge) is broken. The Fe
 edge stack lives in Cloudflare Workers (account `e2a7eccb…`, `hrgrrtks2p`), not in this
 repo, so findings below were pulled from the **deployed worker bundles**, the
 `fenrir-bridge` D1 database, and Supabase logs. Live HTTP probing was not possible from
-this sandbox (egress allowlist), so each finding includes a verification command to run
-from any normal machine.
+this sandbox (egress allowlist), so findings F1–F3 each include a verification command
+to run from any normal machine (F4 and F5 are configuration/data observations verified
+directly against WorkOS and D1).
+
+> **Update (2026-08-06): the production auth decision is WorkOS AuthKit.** Any
+> Supabase-migration guidance below (notably in F3/F4) is historical context from
+> before that decision — keep WorkOS, do not migrate the login to Supabase or Neon
+> Auth. The current fix path lives in `deploy/fenrir-workers/README.md`.
 
 ## Timeline signal
 
@@ -79,9 +85,11 @@ strongly supports that the Supabase-side flow was never wired up: the old direct
 were disabled before the replacement (supabase-js `signInWithOAuth` + registered
 redirect URLs + SPA `/auth/callback` route) went live.
 
-**Fix:** in the SPA, start OAuth with `supabase.auth.signInWithOAuth({provider,
-options:{redirectTo:'https://myfenrir.com/auth/callback'}})`; register the callback
-URL in Supabase Auth → URL Configuration; keep the guard's 410 only as a tombstone.
+**Fix (historical — superseded):** the Supabase `signInWithOAuth` route was
+considered here before the WorkOS decision. The current fix keeps WorkOS: exempt
+`/api/auth/{login,callback}/workos` from the guard's 410 (done in
+`deploy/fenrir-workers/fenrir-direct-oauth-guard.js`) and point the SPA's provider
+buttons at the WorkOS AuthKit flow.
 
 Verify: open the login page and inspect the provider buttons' hrefs; and
 `curl -i https://myfenrir.com/api/auth/login/google` (expect the 410 today).
@@ -95,9 +103,10 @@ leaves the user "logged out" in the app — a classic split-brain that looks exa
 "login is broken" to the user.
 
 Security note: that cookie is an **unsigned plain email** — anyone can forge
-`fenrir_workos_user=admin@example.com`. Nothing should trust it. Recommend retiring
-`myfenrir-login`/WorkOS (or making it mint a real Supabase/D1-backed session token)
-and pointing `login.myfenrir.com` at the SPA login.
+`fenrir_workos_user=admin@example.com`. Nothing should trust it. Since WorkOS is the
+production auth (see the update note above), the fix is to make the WorkOS callback
+mint a real signed/D1-backed session for `.myfenrir.com` that the SPA and API layer
+both honor — not to retire WorkOS.
 
 ### F5 — Telegram identity linking split-brain (D1 vs Supabase)
 
@@ -111,11 +120,14 @@ MyFenrir → claimed in Telegram" loop end-to-end.
 
 ## Suggested order of operations
 
-1. Apply F1 (move the auth gate onto `/mcp` only) and F2 (add apex origin) to
+1. Deploy the patched guard (`deploy/fenrir-workers/`) so the WorkOS callback routes
+   stop returning 410 (F3).
+2. Apply F1 (move the auth gate onto `/mcp` only) and F2 (add apex origin) to
    `fenrir-mcp-beta` — both are two-line edits and unblock `/api/auth/me`.
-2. Wire the SPA to Supabase OAuth (F3) and register redirect URLs in Supabase.
-3. Retire or bridge the WorkOS flow at `login.myfenrir.com` (F4).
-4. Unify identity-link storage (F5).
+3. In WorkOS: register `https://login.myfenrir.com/auth/callback` and enable the
+   Apple/Google/Microsoft providers with their credentials (F4 prerequisites).
+4. Harden the WorkOS session (signed cookie or D1-backed session, F4) and unify
+   identity-link storage (F5).
 5. Re-test: `/api/health` 200 JSON, `/api/auth/me` 200 `{authenticated:false}` for
-   anonymous, provider button → Supabase → `/auth/callback` → session present, and a
-   fresh row in `app_users`.
+   anonymous, provider button → WorkOS → callback → session present, and a fresh row
+   in `app_users`.

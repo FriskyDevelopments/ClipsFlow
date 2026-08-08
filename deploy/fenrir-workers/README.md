@@ -1,5 +1,13 @@
 # Fenrir login fix — deploy steps
 
+**Production auth contract: WorkOS AuthKit is the single identity provider.** The
+Supabase-OAuth guidance in older notes is historical and not the plan. Session
+ownership: requests to `/api/auth/callback/workos` on `myfenrir.com` / `www` are
+handled by the fenrir-bridge Pages app behind this guard, and
+`login.myfenrir.com/auth/callback` is handled by the `myfenrir-login` worker —
+whichever handles the callback exchanges the code with WorkOS server-side and mints
+the session for `.myfenrir.com`.
+
 Three blockers are stacked on the WorkOS login path. This directory carries the fix
 for #1; #2 and #3 are WorkOS dashboard toggles (or one connector call each once the
 WorkOS MCP connector is reconnected).
@@ -52,8 +60,13 @@ the worker's `WORKOS_REDIRECT_URI` secret to one of the registered URIs instead.
 ## Verify after deploying
 
 ```bash
-curl -i https://myfenrir.com/api/auth/callback/workos   # expect proxy/redirect, NOT 410
+# assert only that the guard no longer 410s the callback — without real
+# code/state params the Pages app may legitimately answer 400 or redirect
+curl -i https://myfenrir.com/api/auth/callback/workos   # any status EXCEPT 410
 curl -i https://myfenrir.com/api/auth/login/google      # still 410 (intentionally retired)
 ```
+
 Then run a full login from `login.myfenrir.com` and confirm a user appears in the
 WorkOS environment (user list is currently empty — zero logins have ever completed).
+Route-matrix tests for the guard live in `tests/fenrir-guard-routes.test.ts`
+(`npm test`).
