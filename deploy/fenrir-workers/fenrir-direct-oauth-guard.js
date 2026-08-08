@@ -1,8 +1,8 @@
-// Fenrir edge guard — WorkOS AuthKit is the production auth flow for myfenrir.com.
-// This worker proxies the SPA from fenrir-bridge.pages.dev, keeps the WorkOS OAuth
-// routes (/api/auth/{login,callback}/workos) live — the WorkOS redirect URIs
-// registered for "Fenrirs Community bridge" point at those paths on myfenrir.com
-// and www.myfenrir.com — and returns 410 for the retired direct-provider routes.
+// Fenrir edge guard. Auth reality: myfenrir.com and FriskyDEV accounts use
+// Supabase Auth (the SPA talks to Supabase directly and lands on /auth/callback,
+// which this worker simply proxies); the community bridge uses Neon. The old
+// direct-provider routes under /api/auth/{login,callback}/ are retired and
+// return 410. Everything else proxies to the Pages app.
 // Deploy this same script to BOTH `fenrir-direct-oauth-guard` and `fenrir-auth-proxy`.
 const pagesOrigin = "https://fenrir-bridge.pages.dev";
 
@@ -12,11 +12,7 @@ const pagesOrigin = "https://fenrir-bridge.pages.dev";
 export const ALLOWED_ORIGINS = new Set([
   "https://myfenrir.com",
   "https://www.myfenrir.com",
-  "https://login.myfenrir.com",
 ]);
-
-// /api/auth/login/workos, /api/auth/callback/workos (and any subpath) stay live.
-export const WORKOS_AUTH_PATH = /^\/api\/auth\/(login|callback)\/workos(\/|$)/;
 
 const jsonHeaders = {
   "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -52,7 +48,7 @@ function disabledDirectOauth(pathname, request) {
     {
       ok: false,
       error: "direct_oauth_disabled",
-      detail: `This provider route is retired. Sign in through WorkOS AuthKit; only /api/auth/${route}/workos is active.`,
+      detail: `The /api/auth/${route}/:provider routes are retired. Sign in on myfenrir.com — authentication is handled by Supabase via the SPA callback route.`,
     },
     { status: 410 },
     request
@@ -75,9 +71,8 @@ export default {
     }
 
     if (
-      (url.pathname.startsWith("/api/auth/login/") ||
-        url.pathname.startsWith("/api/auth/callback/")) &&
-      !WORKOS_AUTH_PATH.test(url.pathname)
+      url.pathname.startsWith("/api/auth/login/") ||
+      url.pathname.startsWith("/api/auth/callback/")
     ) {
       return disabledDirectOauth(url.pathname, request);
     }

@@ -8,10 +8,12 @@ this sandbox (egress allowlist), so findings F1–F3 each include a verification
 to run from any normal machine (F4 and F5 are configuration/data observations verified
 directly against WorkOS and D1).
 
-> **Update (2026-08-06): the production auth decision is WorkOS AuthKit.** Any
-> Supabase-migration guidance below (notably in F3/F4) is historical context from
-> before that decision — keep WorkOS, do not migrate the login to Supabase or Neon
-> Auth. The current fix path lives in `deploy/fenrir-workers/README.md`.
+> **Update (2026-08-08): production auth is Supabase for myfenrir.com and FriskyDEV
+> accounts, and Neon for the community bridge. WorkOS is retired.** As of
+> 2026-08-08 the Supabase flow is confirmed working end-to-end (successful Apple
+> and Google logins in the auth logs, zero errors in 24 h). Any WorkOS-fix guidance
+> below is historical context from an earlier direction that was abandoned. The
+> current guard notes live in `deploy/fenrir-workers/README.md`.
 
 ## Timeline signal
 
@@ -85,14 +87,10 @@ strongly supports that the Supabase-side flow was never wired up: the old direct
 were disabled before the replacement (supabase-js `signInWithOAuth` + registered
 redirect URLs + SPA `/auth/callback` route) went live.
 
-**Fix (historical — superseded):** the Supabase `signInWithOAuth` route was
-considered here before the WorkOS decision. The current fix keeps WorkOS: exempt
-`/api/auth/{login,callback}/workos` from the guard's 410 (done in
-`deploy/fenrir-workers/fenrir-direct-oauth-guard.js`) and point the SPA's provider
-buttons at the WorkOS AuthKit flow.
-
-Verify: open the login page and inspect the provider buttons' hrefs; and
-`curl -i https://myfenrir.com/api/auth/login/google` (expect the 410 today).
+**Resolution (2026-08-08):** the SPA was wired to Supabase (`signInWithOAuth` →
+provider → SPA `/auth/callback`), which the guard proxies untouched — the 410
+tombstones on `/api/auth/{login,callback}/:provider` never sit on the live path.
+Auth logs confirm successful Apple/Google logins and signups through this flow.
 
 ### F4 — two parallel auth stacks that don't share a session
 
@@ -103,10 +101,10 @@ leaves the user "logged out" in the app — a classic split-brain that looks exa
 "login is broken" to the user.
 
 Security note: that cookie is an **unsigned plain email** — anyone can forge
-`fenrir_workos_user=admin@example.com`. Nothing should trust it. Since WorkOS is the
-production auth (see the update note above), the fix is to make the WorkOS callback
-mint a real signed/D1-backed session for `.myfenrir.com` that the SPA and API layer
-both honor — not to retire WorkOS.
+`fenrir_workos_user=admin@example.com`. Nothing should trust it. With WorkOS
+retired (see the update note above), the fix is to decommission the
+`myfenrir-login` worker entirely — or repoint `login.myfenrir.com` at the SPA's
+Supabase login — so this cookie stops being minted at all.
 
 ### F5 — Telegram identity linking split-brain (D1 vs Supabase)
 
@@ -120,14 +118,13 @@ MyFenrir → claimed in Telegram" loop end-to-end.
 
 ## Suggested order of operations
 
-1. Deploy the patched guard (`deploy/fenrir-workers/`) so the WorkOS callback routes
-   stop returning 410 (F3).
+1. F3 is resolved — Supabase login works end-to-end (see the update note). The
+   guard in `deploy/fenrir-workers/` remains an optional refresh: same route
+   behavior as production, plus origin-allowlisted CORS and an accurate 410 message.
 2. Apply F1 (move the auth gate onto `/mcp` only) and F2 (add apex origin) to
    `fenrir-mcp-beta` — both are two-line edits and unblock `/api/auth/me`.
-3. In WorkOS: register `https://login.myfenrir.com/auth/callback` and enable the
-   Apple/Google/Microsoft providers with their credentials (F4 prerequisites).
-4. Harden the WorkOS session (signed cookie or D1-backed session, F4) and unify
-   identity-link storage (F5).
+3. Decommission the retired WorkOS-era `myfenrir-login` worker so the forgeable
+   `fenrir_workos_user` cookie stops being minted (F4).
+4. Unify identity-link storage between D1 and Supabase (F5).
 5. Re-test: `/api/health` 200 JSON, `/api/auth/me` 200 `{authenticated:false}` for
-   anonymous, provider button → WorkOS → callback → session present, and a fresh row
-   in `app_users`.
+   anonymous, provider button → Supabase → `/auth/callback` → session present.

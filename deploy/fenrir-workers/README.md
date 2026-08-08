@@ -1,72 +1,53 @@
-# Fenrir login fix — deploy steps
+# Fenrir edge guard — deploy notes
 
-**Production auth contract: WorkOS AuthKit is the single identity provider.** The
-Supabase-OAuth guidance in older notes is historical and not the plan. Session
-ownership: requests to `/api/auth/callback/workos` on `myfenrir.com` / `www` are
-handled by the fenrir-bridge Pages app behind this guard, and
-`login.myfenrir.com/auth/callback` is handled by the `myfenrir-login` worker —
-whichever handles the callback exchanges the code with WorkOS server-side and mints
-the session for `.myfenrir.com`.
+**Auth reality (2026-08-08):** myfenrir.com and FriskyDEV accounts authenticate with
+**Supabase Auth** (project `FriskyDEV`, `yqevglppbhuoxxfsfnih`) — the SPA talks to
+Supabase directly and returns through the SPA's `/auth/callback` route, which the
+guard simply proxies. The **community bridge** (`gate.myfenrir.com`) uses **Neon**.
+WorkOS is retired and plays no part in production auth.
 
-Three blockers are stacked on the WorkOS login path. This directory carries the fix
-for #1; #2 and #3 are WorkOS dashboard toggles (or one connector call each once the
-WorkOS MCP connector is reconnected).
+## What the guard does
 
-## 1. Edge guard 410s the WorkOS callback (deploy `fenrir-direct-oauth-guard.js`)
+`fenrir-direct-oauth-guard.js` (deploy the same script to BOTH the
+`fenrir-direct-oauth-guard` and `fenrir-auth-proxy` workers):
 
-The workers `fenrir-auth-proxy` and `fenrir-direct-oauth-guard` (both deployed
-2026-08-05 17:11 UTC, identical bundles) return **410 `direct_oauth_disabled`** for
-everything under `/api/auth/callback/` — including the registered WorkOS redirect
-URIs `https://myfenrir.com/api/auth/callback/workos` and the `www` variant. The
-patched script in this directory exempts `/api/auth/{login,callback}/workos` and
-proxies them through to the Pages app like every other route.
+- proxies the SPA from `fenrir-bridge.pages.dev` (including `/auth/callback`);
+- returns **410 `direct_oauth_disabled`** for the retired
+  `/api/auth/{login,callback}/:provider` routes, pointing users at the Supabase
+  SPA flow;
+- reflects CORS only for the allowlisted browser origins (`myfenrir.com`, `www`),
+  with `Vary: Origin` — never the worker's own origin.
+
+Compared to the currently deployed Aug 5 bundle this adds the origin-allowlisted
+CORS handling and an accurate 410 message; route behavior is otherwise identical.
+
+## Deploy
 
 ```bash
-# from a machine with wrangler authenticated against account e2a7eccb…
+# from a ClipsFlow checkout of this branch, with wrangler authenticated
 npx wrangler deploy deploy/fenrir-workers/fenrir-direct-oauth-guard.js \
   --name fenrir-direct-oauth-guard --compatibility-date 2026-08-01
 npx wrangler deploy deploy/fenrir-workers/fenrir-direct-oauth-guard.js \
   --name fenrir-auth-proxy --compatibility-date 2026-08-01
 ```
 
-## 2. Enable the social providers in WorkOS
-
-Environment **"Fenrirs Community bridge"** (`environment_01KT7NWYB12QG2NJH64R5EACFQ`,
-client `client_01KT7NWYWB256XP0V00PX1YW01`) has Apple, Google, and Microsoft OAuth
-**all disabled**, while the login page at `login.myfenrir.com` offers exactly those
-three buttons. In the WorkOS dashboard → Authentication → Social login: add each
-provider's OAuth client credentials and enable it. Until then only "More sign-in
-options" (AuthKit with Magic Auth email codes) can work.
-
-## 3. Register the login worker's redirect URI
-
-`myfenrir-login` defaults to `redirect_uri=https://login.myfenrir.com/auth/callback`,
-which is **not** in the environment's redirect URI list (current entries:
-`https://myfenrir.com/auth/callback` (default), `https://myfenrir.com/api/auth/callback/workos`,
-`https://www.myfenrir.com/api/auth/callback/workos`). Add
-`https://login.myfenrir.com/auth/callback` in WorkOS dashboard → Redirects — or set
-the worker's `WORKOS_REDIRECT_URI` secret to one of the registered URIs instead.
-
-## Also worth doing (same stack, separate bugs)
-
-- `fenrir-mcp-beta`: move the `mcpAuthFailure(...)` check inside the
-  `isMcpEndpoint(url.pathname)` branch so public routes (`/api/health`,
-  `/api/auth/me`) stop requiring the bot bearer token, and add
-  `"https://myfenrir.com"` (apex) to `DEFAULT_ALLOWED_ORIGINS`.
-- The `fenrir_workos_user` cookie set by `myfenrir-login` is an unsigned plain
-  email on `.myfenrir.com` — forgeable; nothing server-side should trust it as a
-  session credential.
-
-## Verify after deploying
+## Verify
 
 ```bash
-# assert only that the guard no longer 410s the callback — without real
-# code/state params the Pages app may legitimately answer 400 or redirect
-curl -i https://myfenrir.com/api/auth/callback/workos   # any status EXCEPT 410
-curl -i https://myfenrir.com/api/auth/login/google      # still 410 (intentionally retired)
+curl -si https://myfenrir.com/api/auth/login/google | head -1   # 410 (retired)
+curl -si https://myfenrir.com/main | head -1                    # 200 via Pages proxy
 ```
 
-Then run a full login from `login.myfenrir.com` and confirm a user appears in the
-WorkOS environment (user list is currently empty — zero logins have ever completed).
-Route-matrix tests for the guard live in `tests/fenrir-guard-routes.test.ts`
+Then sign in on myfenrir.com (Supabase → provider → `/auth/callback`) and confirm
+the session lands. Route tests live in `tests/fenrir-guard-routes.test.ts`
 (`npm test`).
+
+## Related (separate bugs, still open)
+
+- `fenrir-mcp-beta`: its bearer-token gate runs before route dispatch, so the
+  intended-public `/api/health` and `/api/auth/me` handlers are unreachable; move
+  the `mcpAuthFailure(...)` check inside the `isMcpEndpoint(url.pathname)` branch,
+  and add `"https://myfenrir.com"` (apex) to its `DEFAULT_ALLOWED_ORIGINS`.
+- `myfenrir-login` (login.myfenrir.com) is a retired WorkOS-era worker that sets a
+  forgeable unsigned `fenrir_workos_user` email cookie — decommission it or point
+  the subdomain at the SPA login.
