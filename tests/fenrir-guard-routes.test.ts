@@ -47,7 +47,7 @@ describe("guard fetch routing", () => {
   it("returns 410 for retired provider login routes", async () => {
     const res = await guard.fetch(new Request(`${BASE}/api/auth/login/google`));
     expect(res.status).toBe(410);
-    const body = await res.json();
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("direct_oauth_disabled");
     expect(proxied).not.toHaveBeenCalled();
   });
