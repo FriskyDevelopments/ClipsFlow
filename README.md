@@ -1,8 +1,24 @@
 # ClipsFlow
 
+[![CI](https://github.com/FriskyDevelopments/ClipsFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/FriskyDevelopments/ClipsFlow/actions/workflows/ci.yml) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white) ![Hono](https://img.shields.io/badge/Hono-E36002?logo=hono&logoColor=white)
+
 A small service for managing video clip metadata, running on **Cloudflare Workers** (Hono + TypeScript). It exposes a **REST API** and a **Discord bot** that share one clip core, persisted to **Cloudflare D1** (SQLite). Request rate limiting uses a **Durable Object**; the Discord bot is driven by Discord's **HTTP Interactions**, so there is no always-on gateway process.
 
 **Docs:** [SPEC.md](./SPEC.md) (full contract) · [DEPLOY.md](./DEPLOY.md) (deploy) · [wiki/](./wiki/Home.md) (guides & runbook)
+
+## Architecture
+
+```mermaid
+flowchart LR
+  client([API client]) -->|REST /clips| worker
+  discord([Discord user]) -->|/clip slash command| dapi[Discord]
+  dapi -->|POST /interactions<br/>Ed25519-signed| worker[Cloudflare Worker · clipsflow<br/>Hono · src/worker.ts]
+  worker --> rl[Durable Object<br/>RateLimiter]
+  worker --> core[Shared clip core<br/>validators · store]
+  core --> d1[(D1 · clipsflow<br/>migrations/0001_init.sql)]
+  gh[GitHub Actions] -->|ci.yml: typecheck · test · dry-run| worker
+  gh -->|deploy.yml: D1 migrations + wrangler deploy| worker
+```
 
 ## Requirements
 
@@ -142,6 +158,8 @@ npm run deploy       # wrangler deploy
 
 See **[DEPLOY.md](./DEPLOY.md)** for D1 setup, secrets, and pointing Discord
 at the Worker.
+
+`.github/workflows/deploy.yml` applies the D1 migrations and runs `wrangler deploy` on manual dispatch or on pushes to the configured go-live branch (it needs Cloudflare credentials in the repo secrets).
 
 ## Testing & CI
 
