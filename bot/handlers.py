@@ -374,6 +374,14 @@ class BotHandlers:
             await message.reply_text("Mini app sent an unreadable request. Please reopen it and try again.")
             return
 
+        if payload.get("action") == "batch_download":
+            batch = getattr(self, "batch_commands", None)
+            if batch is None:
+                await message.reply_text("Batch mode is not enabled on this bot.")
+                return
+            await batch.handle_web_app_batch(client, message, payload)
+            return
+
         if payload.get("action") != "process_clip":
             await message.reply_text("Mini app action is not supported yet.")
             return
@@ -1116,6 +1124,11 @@ def setup_handlers(app: Client, pipeline: ClipPipeline, media_processor: MediaPr
     app.add_handler(MessageHandler(bot_handlers.pro_command, filters.command("pro")))
     app.add_handler(MessageHandler(bot_handlers.miniapp_command, filters.command("miniapp")))
     app.add_handler(MessageHandler(bot_handlers.grant_free_command, filters.command("grantfree")))
+    if settings.batch_agent_enabled:
+        from bot.batch_handlers import BatchCommands
+
+        bot_handlers.batch_commands = BatchCommands(pipeline, settings)
+        app.add_handler(MessageHandler(bot_handlers.batch_commands.batch_command, filters.command("batch")))
     app.add_handler(MessageHandler(bot_handlers.handle_web_app_data, web_app_data_filter))
     app.add_handler(MessageHandler(bot_handlers.handle_link, filters.text & ~filters.regex(r"^/")))
     app.add_handler(MessageHandler(bot_handlers.unknown_command, filters.regex(r"^/")))

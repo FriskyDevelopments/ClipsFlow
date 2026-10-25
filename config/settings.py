@@ -56,6 +56,15 @@ class Settings:
     referral_commission_cents: int
     telegram_stars_pro_price: int
 
+    # ── Batch download agent ──────────────────────────────────────────────
+    batch_agent_enabled: bool
+    batch_allowed_providers: list[str]
+    batch_max_urls: int
+    batch_concurrency: int
+    batch_min_interval_seconds: int
+    batch_max_retries: int
+    batch_retry_base_seconds: int
+
     # ── Provider ──────────────────────────────────────────────────────────
     clip_provider: str
     youtube_api_key: str
@@ -141,6 +150,21 @@ class Settings:
             for admin_id in raw_admin_ids.split(",")
             if admin_id.strip().isdigit()
         ]
+        # Batch download agent (see docs/batch-agent.md). Off by default.
+        self.batch_agent_enabled = parse_bool_env("BATCH_AGENT_ENABLED", default=False)
+        raw_batch_providers = os.getenv("BATCH_ALLOWED_PROVIDERS", "")
+        self.batch_allowed_providers = [
+            p.strip().lower() for p in raw_batch_providers.split(",") if p.strip()
+        ]
+        self.batch_max_urls = parse_int_env("BATCH_MAX_URLS", default=50, min_val=1)
+        self.batch_concurrency = parse_int_env("BATCH_CONCURRENCY", default=1, min_val=1)
+        self.batch_min_interval_seconds = parse_int_env(
+            "BATCH_MIN_INTERVAL_SECONDS", default=3, min_val=0
+        )
+        self.batch_max_retries = parse_int_env("BATCH_MAX_RETRIES", default=2, min_val=0)
+        self.batch_retry_base_seconds = parse_int_env(
+            "BATCH_RETRY_BASE_SECONDS", default=2, min_val=0
+        )
         self.honeybadger_api_key = _strip_quoted_env(
             os.getenv("HONEYBADGER_API_KEY", "").strip()
         ) or None
