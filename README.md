@@ -227,6 +227,16 @@ ClipsFlow supports these URL sources through a unified provider registry:
 
 If a URL is from a known provider domain but that provider is disabled, ClipsFlow returns a clear "supported but disabled" validation error instead of silently falling back.
 
+## Batch Download Agent
+
+Admins (listed in `TELEGRAM_ADMIN_IDS`; empty = nobody) can queue many links at once with
+`/batch <url> <url> …`, check progress with `/batch status`, and stop with `/batch cancel`,
+or use the Mini App page `/miniapp/batch`. Each link goes through the normal pipeline and the
+existing provider adapters only, filtered by `BATCH_ALLOWED_PROVIDERS`, with retries, backoff,
+rate limiting and a concurrency cap. Music-streaming/DRM services (Spotify, Apple Music,
+SoundCloud, …) are always rejected. Off by default (`BATCH_AGENT_ENABLED=false`).
+See [docs/batch-agent.md](docs/batch-agent.md).
+
 ## Testing
 
 Run full suite:
